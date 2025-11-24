@@ -11,12 +11,6 @@ const isLoading = ref(false)
 const errorMessage = ref('')
 const isLoginMode = ref(true) // Toggle between login and register
 
-// Email validation
-const isValidEmail = (email: string): boolean => {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  return emailRegex.test(email)
-}
-
 // Form validation
 const isFormValid = computed(() => {
   if (!email.value || !password.value) return false
