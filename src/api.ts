@@ -315,6 +315,28 @@ export const relationshipApi = {
     >('/Relationship/_getRelationships', { owner })
     return response
   },
+
+  /**
+   * Get relationship by name
+   * POST /api/Relationship/_getRelationshipByName
+   */
+  async getRelationshipByName(owner: User, name: string): Promise<{
+    relationship: any
+    name: string
+    relationshipType: string
+  }> {
+    const response = await apiCall<
+      Array<{
+        relationship: any
+        name: string
+        relationshipType: string
+      }>
+    >('/Relationship/_getRelationshipByName', { owner, name })
+    if (!response[0]) {
+      throw new Error('Relationship not found')
+    }
+    return response[0]
+  },
 }
 
 /**
