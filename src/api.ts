@@ -2,10 +2,10 @@
  * API Service for Momento Backend
  * 
  * All endpoints use POST method with application/json content type.
- * Base URL: /api
+ * Base URL: defaults to /api, can be overridden with VITE_API_BASE_URL environment variable
  */
 
-const API_BASE_URL = '/api'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 
 interface ApiResponse<T> {
   [key: string]: T
