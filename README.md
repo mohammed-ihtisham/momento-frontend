@@ -20,13 +20,23 @@ Momento is a single-page marketing splash screen built with Vue 3 + Vite. The go
    npm install
    ```
 
-3. Start the dev server:
+3. Configure backend URL (optional):
+
+   Create a `.env` file in the root directory to set your backend URL:
+   
+   ```sh
+   VITE_BACKEND_URL=http://localhost:8000
+   ```
+   
+   If not set, the default is `http://localhost:8000`. The Vite dev server will proxy all `/api` requests to this backend URL.
+
+4. Start the dev server:
 
    ```sh
    npm run dev
    ```
 
-4. Visit the URL printed in the terminal (defaults to `http://localhost:5173`).
+5. Visit the URL printed in the terminal (defaults to `http://localhost:5173`).
 
 ## Scripts
 
