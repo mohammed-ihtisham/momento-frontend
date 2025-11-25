@@ -2,16 +2,24 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { profileApi, sessionManager, relationshipApi } from '../api'
+import { nameToSlug } from '../utils'
 
 const router = useRouter()
 
 // App state
 const currentUser = ref<any>(null)
 const userProfile = ref<{ name: string; email: string } | null>(null)
-const relationships = ref<any[]>([])
+const allRelationships = ref<any[]>([])
+const pinnedRelationships = ref<any[]>([])
 const occasions = ref<any[]>([])
 const showUserMenu = ref(false)
 const isLoadingRelationships = ref(false)
+
+// Drag and drop state
+const draggedIndex = ref<number | null>(null)
+const dragOverIndex = ref<number | null>(null)
+const isDragging = ref(false)
+const justDropped = ref(false)
 
 // Get user's first name from profile
 const getUserFirstName = computed(() => {
@@ -21,6 +29,49 @@ const getUserFirstName = computed(() => {
   }
   return 'User'
 })
+
+// Display pinned relationships on dashboard
+const displayedRelationships = computed(() => {
+  return pinnedRelationships.value
+})
+
+// Check if there are more relationships than pinned (to show "View All" button)
+const hasMoreRelationships = computed(() => {
+  return allRelationships.value.length > pinnedRelationships.value.length
+})
+
+// Load pinned relationships from localStorage
+const loadPinnedRelationships = (relationships: any[]) => {
+  if (!currentUser.value) return
+  
+  const pinnedKey = `momento_pinned_${currentUser.value.id || currentUser.value.username}`
+  const savedPinned = localStorage.getItem(pinnedKey)
+  
+  if (!savedPinned) {
+    pinnedRelationships.value = []
+    return
+  }
+  
+  try {
+    const pinnedIds = JSON.parse(savedPinned) as string[]
+    const relationshipMap = new Map(relationships.map(r => [r.id, r]))
+    pinnedRelationships.value = pinnedIds
+      .map(id => relationshipMap.get(id))
+      .filter(Boolean)
+  } catch (error) {
+    console.error('Error loading pinned relationships:', error)
+    pinnedRelationships.value = []
+  }
+}
+
+// Save pinned relationships to localStorage
+const savePinnedRelationships = () => {
+  if (!currentUser.value) return
+  
+  const pinnedKey = `momento_pinned_${currentUser.value.id || currentUser.value.username}`
+  const pinnedIds = pinnedRelationships.value.map(r => r.id)
+  localStorage.setItem(pinnedKey, JSON.stringify(pinnedIds))
+}
 
 // Load dashboard data
 const loadDashboardData = async () => {
@@ -43,15 +94,20 @@ const loadDashboardData = async () => {
       const relationshipsData = await relationshipApi.getRelationships(
         currentUser.value
       )
-      relationships.value = relationshipsData.map((r) => ({
-        id: r.relationship?.id || Math.random().toString(),
+      const mapped = relationshipsData.map((r) => ({
+        id: r.relationship?.id || r.name, // Use relationship ID if available, otherwise use name as stable identifier
         name: r.name,
         relationshipType: r.relationshipType,
+        relationship: r.relationship,
         avatar: null,
       }))
+      allRelationships.value = mapped
+      // Load pinned relationships
+      loadPinnedRelationships(mapped)
     } catch (error) {
       console.error('Error loading relationships:', error)
-      relationships.value = []
+      allRelationships.value = []
+      pinnedRelationships.value = []
     } finally {
       isLoadingRelationships.value = false
     }
@@ -85,7 +141,8 @@ const handleLogout = async () => {
   sessionManager.clearUser()
   currentUser.value = null
   userProfile.value = null
-  relationships.value = []
+  allRelationships.value = []
+  pinnedRelationships.value = []
   occasions.value = []
   showUserMenu.value = false
   // Use replace to ensure navigation and redirect to login page
@@ -125,7 +182,7 @@ const handleAddProfile = () => {
 
 // Handle view all relationships
 const handleViewAllRelationships = () => {
-  console.log('View all relationships clicked')
+  router.push('/view-all')
 }
 
 // Handle view all occasions
@@ -135,12 +192,106 @@ const handleViewAllOccasions = () => {
 
 // Handle relationship card click
 const handleRelationshipClick = (relationship: any) => {
-  router.push(`/relationship/${relationship.id}`)
+  const slug = nameToSlug(relationship.name)
+  router.push(`/relationship/${slug}`)
 }
 
 // Handle occasion card click
 const handleOccasionClick = (occasion: any) => {
   console.log('Occasion clicked:', occasion)
+}
+
+// Drag and drop handlers
+const handleDragStart = (index: number, event: DragEvent) => {
+  draggedIndex.value = index
+  isDragging.value = true
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', index.toString())
+  }
+  // Add visual feedback with a slight delay
+  if (event.target) {
+    (event.target as HTMLElement).style.opacity = '0.5'
+  }
+}
+
+const handleDragEnd = (event: DragEvent) => {
+  // Reset opacity
+  if (event.target) {
+    (event.target as HTMLElement).style.opacity = '1'
+  }
+  // Use setTimeout to allow drop handler to complete first
+  setTimeout(() => {
+    if (draggedIndex.value !== null && dragOverIndex.value === null) {
+      // If drag ended without dropping, it might have been a click
+      // Reset the dragging state
+      isDragging.value = false
+    }
+    draggedIndex.value = null
+    dragOverIndex.value = null
+  }, 0)
+}
+
+const handleDragOver = (index: number, event: DragEvent) => {
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+  // Only allow drag over within the pinned relationships
+  if (draggedIndex.value !== null && draggedIndex.value !== index && 
+      draggedIndex.value < pinnedRelationships.value.length && 
+      index < pinnedRelationships.value.length) {
+    dragOverIndex.value = index
+  }
+}
+
+const handleDragLeave = () => {
+  dragOverIndex.value = null
+}
+
+const handleDrop = (dropIndex: number, event: DragEvent) => {
+  event.preventDefault()
+  event.stopPropagation()
+  
+  if (draggedIndex.value === null || draggedIndex.value === dropIndex) {
+    dragOverIndex.value = null
+    isDragging.value = false
+    return
+  }
+  
+  // Ensure we're only reordering within the pinned relationships
+  if (draggedIndex.value >= pinnedRelationships.value.length || dropIndex >= pinnedRelationships.value.length) {
+    dragOverIndex.value = null
+    isDragging.value = false
+    return
+  }
+  
+  // Reorder pinned relationships
+  const newPinned = [...pinnedRelationships.value]
+  const draggedItem = newPinned[draggedIndex.value]
+  newPinned.splice(draggedIndex.value, 1)
+  newPinned.splice(dropIndex, 0, draggedItem)
+  
+  pinnedRelationships.value = newPinned
+  savePinnedRelationships()
+  
+  // Set flag to prevent click navigation
+  justDropped.value = true
+  setTimeout(() => {
+    justDropped.value = false
+  }, 100)
+  
+  // Reset drag state
+  draggedIndex.value = null
+  dragOverIndex.value = null
+  isDragging.value = false
+}
+
+const handleCardClick = (relationship: any) => {
+  // Only navigate if we're not dragging and didn't just drop
+  if (!isDragging.value && !justDropped.value) {
+    handleRelationshipClick(relationship)
+  }
 }
 
 // Close user menu when clicking outside
@@ -229,13 +380,26 @@ onUnmounted(() => {
               <div class="section-header-content">
                 <h2 class="section-title">Your People</h2>
                 <p
-                  v-if="relationships.length === 0 && !isLoadingRelationships"
+                  v-if="allRelationships.length === 0 && !isLoadingRelationships"
                   class="section-subtitle"
                 >
                   No relationships yet. Add your first person!
                 </p>
+                <p
+                  v-if="pinnedRelationships.length > 0 && hasMoreRelationships"
+                  class="section-subtitle"
+                >
+                  Showing {{ pinnedRelationships.length }} pinned of {{ allRelationships.length }} people
+                </p>
+                <p
+                  v-else-if="pinnedRelationships.length === 0 && allRelationships.length > 0"
+                  class="section-subtitle"
+                >
+                  Pin relationships to see them here
+                </p>
               </div>
               <button
+                v-if="hasMoreRelationships || pinnedRelationships.length > 0"
                 @click="handleViewAllRelationships"
                 class="section-action"
               >
@@ -245,10 +409,20 @@ onUnmounted(() => {
             <div class="relationships-carousel">
               <div class="relationships-scroll">
                 <div
-                  v-for="relationship in relationships"
+                  v-for="(relationship, displayIndex) in displayedRelationships"
                   :key="relationship.id"
-                  @click="handleRelationshipClick(relationship)"
+                  :draggable="true"
+                  @dragstart="handleDragStart(displayIndex, $event)"
+                  @dragend="handleDragEnd($event)"
+                  @dragover="handleDragOver(displayIndex, $event)"
+                  @dragleave="handleDragLeave"
+                  @drop="handleDrop(displayIndex, $event)"
+                  @click="handleCardClick(relationship)"
                   class="relationship-card"
+                  :class="{
+                    'dragging': draggedIndex === displayIndex,
+                    'drag-over': dragOverIndex === displayIndex && draggedIndex !== displayIndex
+                  }"
                 >
                   <div class="relationship-avatar">
                     <span v-if="!relationship.avatar" class="avatar-placeholder">

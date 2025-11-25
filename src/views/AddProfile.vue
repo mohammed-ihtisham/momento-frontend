@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { relationshipApi, sessionManager } from '../api'
+import { nameToSlug } from '../utils'
 
 const router = useRouter()
 
@@ -82,20 +83,46 @@ const handleSubmit = async () => {
       : relationshipType.value
 
     // Create relationship
-    await relationshipApi.createRelationship(
+    const newRelationship = await relationshipApi.createRelationship(
       currentUser,
       name.value.trim(),
       finalRelationshipType
     )
+
+    // Auto-pin the new relationship if there are less than 7 pinned
+    const MAX_PINNED = 7
+    const pinnedKey = `momento_pinned_${currentUser.id || currentUser.username}`
+    const savedPinned = localStorage.getItem(pinnedKey)
+    
+    let pinnedIds: string[] = []
+    if (savedPinned) {
+      try {
+        pinnedIds = JSON.parse(savedPinned) as string[]
+      } catch (error) {
+        console.error('Error parsing pinned relationships:', error)
+        pinnedIds = []
+      }
+    }
+    
+    // Get the relationship ID (matching the format used in Dashboard/ViewAll: relationship.id || name)
+    // The createRelationship returns the relationship object, so we use its id or name as fallback
+    const relationshipId = newRelationship?.id || name.value.trim()
+    
+    // Add to pinned if less than 7
+    if (pinnedIds.length < MAX_PINNED && !pinnedIds.includes(relationshipId)) {
+      pinnedIds.push(relationshipId)
+      localStorage.setItem(pinnedKey, JSON.stringify(pinnedIds))
+    }
 
     // Show success loading animation
     isLoading.value = false
     isCreating.value = true
 
     // Navigate to relationship detail page after animation
-    // Use the name as the identifier since we can fetch by name
+    // Use the slugified name as the URL identifier
+    const slug = nameToSlug(name.value.trim())
     setTimeout(() => {
-      router.push(`/relationship/${encodeURIComponent(name.value.trim())}`)
+      router.push(`/relationship/${slug}`)
     }, 2000)
 
   } catch (error) {

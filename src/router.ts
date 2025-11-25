@@ -3,6 +3,7 @@ import { sessionManager } from './api'
 import Dashboard from './views/Dashboard.vue'
 import AddProfile from './views/AddProfile.vue'
 import RelationshipDetail from './views/RelationshipDetail.vue'
+import ViewAll from './views/ViewAll.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -24,6 +25,12 @@ const router = createRouter({
       name: 'relationship-detail',
       component: RelationshipDetail,
       props: true,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/view-all',
+      name: 'view-all',
+      component: ViewAll,
       meta: { requiresAuth: true },
     },
   ],

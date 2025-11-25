@@ -340,6 +340,88 @@ export const relationshipApi = {
 }
 
 /**
+ * Notes API
+ */
+export const notesApi = {
+  /**
+   * Create a new note
+   * POST /api/Notes/createNote
+   */
+  async createNote(
+    owner: User,
+    relationship: any,
+    title: string,
+    content: string
+  ): Promise<any> {
+    const response = await apiCall<ApiResponse<any>>('/Notes/createNote', {
+      owner,
+      relationship,
+      title,
+      content,
+    })
+    if (!response.note) {
+      throw new Error('Failed to create note')
+    }
+    return response.note
+  },
+
+  /**
+   * Update a note
+   * POST /api/Notes/updateNote
+   */
+  async updateNote(
+    note: any,
+    title?: string,
+    content?: string
+  ): Promise<any> {
+    const body: any = { note }
+    if (title !== undefined) {
+      body.title = title
+    }
+    if (content !== undefined) {
+      body.content = content
+    }
+    const response = await apiCall<ApiResponse<any>>('/Notes/updateNote', body)
+    if (!response.note) {
+      throw new Error('Failed to update note')
+    }
+    return response.note
+  },
+
+  /**
+   * Delete a note
+   * POST /api/Notes/deleteNote
+   */
+  async deleteNote(note: any): Promise<void> {
+    await apiCall('/Notes/deleteNote', { note })
+  },
+
+  /**
+   * Get all notes for a relationship
+   * POST /api/Notes/_getNotesByRelationship
+   */
+  async getNotesByRelationship(
+    owner: User,
+    relationship: any
+  ): Promise<
+    Array<{
+      note: any
+      title: string
+      content: string
+    }>
+  > {
+    const response = await apiCall<
+      Array<{
+        note: any
+        title: string
+        content: string
+      }>
+    >('/Notes/_getNotesByRelationship', { owner, relationship })
+    return response
+  },
+}
+
+/**
  * Session management
  */
 export const sessionManager = {
