@@ -422,6 +422,86 @@ export const notesApi = {
 }
 
 /**
+ * MemoryGallery API
+ */
+export const memoryGalleryApi = {
+  /**
+   * Upload an image for a relationship
+   * POST /api/MemoryGallery/uploadImage
+   */
+  async uploadImage(
+    file: File,
+    owner: User,
+    relationship: any
+  ): Promise<{ uploadDate: Date; imageUrl: string }> {
+    const formData = new FormData()
+    formData.append('file', file) // File object from input
+    
+    // Send owner - use ID if available, otherwise send the whole object as JSON string
+    const ownerValue = owner.id || owner.username || JSON.stringify(owner)
+    formData.append('owner', ownerValue)
+    
+    // Send relationship - use ID if available, otherwise send the whole object as JSON string
+    const relationshipValue = relationship.id || JSON.stringify(relationship)
+    formData.append('relationship', relationshipValue)
+
+    const url = `${API_BASE_URL}/MemoryGallery/uploadImage`
+    const response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      // Note: Don't set Content-Type header - browser will set it with boundary
+    })
+
+    const result = await response.json()
+    
+    if (!response.ok || result.error) {
+      const errorMessage = result.error || `Upload failed with status ${response.status}`
+      throw new Error(errorMessage)
+    }
+
+    return {
+      uploadDate: new Date(result.uploadDate),
+      imageUrl: result.imageUrl,
+    }
+  },
+
+  /**
+   * Get all images for a relationship
+   * POST /api/MemoryGallery/_getImagesByRelationship
+   */
+  async getImagesByRelationship(
+    owner: User,
+    relationship: any
+  ): Promise<
+    Array<{
+      imageUrl: string
+      uploadDate: string
+    }>
+  > {
+    const url = `${API_BASE_URL}/MemoryGallery/_getImagesByRelationship`
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ owner, relationship }),
+    })
+
+    const images = await response.json()
+    
+    if (!response.ok) {
+      const errorMessage = 
+        (images && typeof images === 'object' && 'error' in images && typeof images.error === 'string')
+          ? images.error
+          : `Failed to fetch images with status ${response.status}`
+      throw new Error(errorMessage)
+    }
+
+    return images // Array of { imageUrl, uploadDate }
+  },
+}
+
+/**
  * Session management
  */
 export const sessionManager = {
