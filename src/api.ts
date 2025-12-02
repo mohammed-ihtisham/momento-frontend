@@ -502,6 +502,116 @@ export const memoryGalleryApi = {
 }
 
 /**
+ * Occasions API (backed by OccasionConcept)
+ */
+export const occasionsApi = {
+  /**
+   * Create a new occasion
+   * POST /api/Occasion/createOccasion
+   */
+  async createOccasion(
+    owner: User,
+    person: string,
+    occasionType: string,
+    date: Date
+  ): Promise<any> {
+    const response = await apiCall<ApiResponse<any>>('/Occasion/createOccasion', {
+      owner,
+      person,
+      occasionType,
+      date: date.toISOString(),
+    })
+    if (!response.occasion) {
+      throw new Error('Failed to create occasion')
+    }
+    return response.occasion
+  },
+
+  /**
+   * Update an occasion
+   * POST /api/Occasion/updateOccasion
+   */
+  async updateOccasion(
+    occasion: any,
+    person?: string,
+    occasionType?: string,
+    date?: Date
+  ): Promise<any> {
+    const body: any = { occasion }
+    if (person !== undefined) {
+      body.person = person
+    }
+    if (occasionType !== undefined) {
+      body.occasionType = occasionType
+    }
+    if (date !== undefined) {
+      body.date = date.toISOString()
+    }
+
+    const response = await apiCall<ApiResponse<any>>('/Occasion/updateOccasion', body)
+    if (!response.occasion) {
+      throw new Error('Failed to update occasion')
+    }
+    return response.occasion
+  },
+
+  /**
+   * Delete an occasion
+   * POST /api/Occasion/deleteOccasion
+   */
+  async deleteOccasion(occasion: any): Promise<void> {
+    await apiCall('/Occasion/deleteOccasion', { occasion })
+  },
+
+  /**
+   * Get all occasions for a user
+   * POST /api/Occasion/_getOccasions
+   */
+  async getOccasions(owner: User): Promise<
+    Array<{
+      occasion: any
+      person: string
+      occasionType: string
+      date: string
+    }>
+  > {
+    const response = await apiCall<
+      Array<{
+        occasion: any
+        person: string
+        occasionType: string
+        date: string
+      }>
+    >('/Occasion/_getOccasions', { owner })
+    return response
+  },
+
+  /**
+   * Get all occasions for a user for a specific person
+   * POST /api/Occasion/_getOccasionsByPerson
+   */
+  async getOccasionsByPerson(
+    owner: User,
+    person: string
+  ): Promise<
+    Array<{
+      occasion: any
+      occasionType: string
+      date: string
+    }>
+  > {
+    const response = await apiCall<
+      Array<{
+        occasion: any
+        occasionType: string
+        date: string
+      }>
+    >('/Occasion/_getOccasionsByPerson', { owner, person })
+    return response
+  },
+}
+
+/**
  * Session management
  */
 export const sessionManager = {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { profileApi, sessionManager, relationshipApi } from '../api'
+import { profileApi, sessionManager, relationshipApi, occasionsApi } from '../api'
 import { nameToSlug } from '../utils'
 
 const router = useRouter()
@@ -38,6 +38,30 @@ const displayedRelationships = computed(() => {
 // Check if there are more relationships than pinned (to show "View All" button)
 const hasMoreRelationships = computed(() => {
   return allRelationships.value.length > pinnedRelationships.value.length
+})
+
+// Helper function to normalize date to start of day for comparison
+const normalizeToDay = (date: Date): Date => {
+  const normalized = new Date(date)
+  normalized.setHours(0, 0, 0, 0)
+  return normalized
+}
+
+// Get upcoming occasions sorted by date (soonest first), limited to 3
+const upcomingOccasions = computed(() => {
+  const now = normalizeToDay(new Date())
+  
+  return occasions.value
+    .filter(occ => {
+      const occDate = normalizeToDay(occ.date instanceof Date ? occ.date : new Date(occ.date))
+      return occDate.getTime() >= now.getTime()
+    })
+    .sort((a, b) => {
+      const dateA = normalizeToDay(a.date instanceof Date ? a.date : new Date(a.date))
+      const dateB = normalizeToDay(b.date instanceof Date ? b.date : new Date(b.date))
+      return dateA.getTime() - dateB.getTime()
+    })
+    .slice(0, 3)
 })
 
 // Load pinned relationships from localStorage
@@ -112,25 +136,31 @@ const loadDashboardData = async () => {
       isLoadingRelationships.value = false
     }
 
-    // Load occasions (mock data for now)
-    occasions.value = [
-      {
-        id: '1',
-        name: 'Birthday',
-        date: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
-        relationshipName: 'Sarah',
-        relationshipType: 'Friend',
-        isPriority: true,
-      },
-      {
-        id: '2',
-        name: 'Anniversary',
-        date: new Date(Date.now() + 12 * 24 * 60 * 60 * 1000),
-        relationshipName: 'Mom',
-        relationshipType: 'Family',
-        isPriority: false,
-      },
-    ]
+    // Load occasions
+    try {
+      const occasionsData = await occasionsApi.getOccasions(currentUser.value)
+      
+      // Enrich with relationship/relationshipType info
+      const enriched = occasionsData.map(occ => {
+        const relationship = allRelationships.value.find(
+          r => r.name === occ.person
+        )
+
+        return {
+          ...occ,
+          id: occ.occasion?.id || occ.occasionType + occ.person + occ.date,
+          name: occ.occasionType,
+          relationshipName: occ.person,
+          relationshipType: relationship?.relationshipType || 'Unknown',
+          date: new Date(occ.date),
+        }
+      })
+      
+      occasions.value = enriched
+    } catch (error) {
+      console.error('Error loading occasions:', error)
+      occasions.value = []
+    }
   } catch (error) {
     console.error('Error loading dashboard data:', error)
   }
@@ -149,15 +179,12 @@ const handleLogout = async () => {
   router.replace('/')
 }
 
-// Toggle priority for occasion
-const toggleOccasionPriority = (occasion: any) => {
-  occasion.isPriority = !occasion.isPriority
-}
-
 // Format time until event
-const getTimeUntilEvent = (date: Date): string => {
-  const now = new Date()
-  const diff = date.getTime() - now.getTime()
+const getTimeUntilEvent = (date: Date | string): string => {
+  const dateObj = typeof date === 'string' ? new Date(date) : date
+  const normalizedDate = normalizeToDay(dateObj)
+  const now = normalizeToDay(new Date())
+  const diff = normalizedDate.getTime() - now.getTime()
   const days = Math.floor(diff / (1000 * 60 * 60 * 24))
   
   if (days < 0) return 'Past'
@@ -187,7 +214,7 @@ const handleViewAllRelationships = () => {
 
 // Handle view all occasions
 const handleViewAllOccasions = () => {
-  console.log('View all occasions clicked')
+  router.push('/occasions')
 }
 
 // Handle relationship card click
@@ -470,7 +497,7 @@ onUnmounted(() => {
             </div>
             <div class="occasions-list">
               <div
-                v-for="occasion in occasions"
+                v-for="occasion in upcomingOccasions"
                 :key="occasion.id"
                 @click="handleOccasionClick(occasion)"
                 class="occasion-card"
@@ -479,35 +506,6 @@ onUnmounted(() => {
                   <div class="occasion-info">
                     <div class="occasion-header-row">
                       <h3 class="occasion-name">{{ occasion.name }}</h3>
-                      <button
-                        @click.stop="toggleOccasionPriority(occasion)"
-                        class="priority-star"
-                        :class="{ active: occasion.isPriority }"
-                        aria-label="Toggle priority"
-                      >
-                        <svg
-                          v-if="occasion.isPriority"
-                          width="20"
-                          height="20"
-                          viewBox="0 0 24 24"
-                          fill="currentColor"
-                          stroke="currentColor"
-                          stroke-width="2"
-                        >
-                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
-                        </svg>
-                        <svg
-                          v-else
-                          width="20"
-                          height="20"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                        >
-                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
-                        </svg>
-                      </button>
                     </div>
                     <div class="occasion-meta">
                       <span class="occasion-time">{{ getTimeUntilEvent(occasion.date) }}</span>
@@ -534,7 +532,7 @@ onUnmounted(() => {
                   </div>
                 </div>
               </div>
-              <div v-if="occasions.length === 0" class="empty-state">
+              <div v-if="upcomingOccasions.length === 0" class="empty-state">
                 <p>No upcoming occasions. Add one to stay on top of important dates!</p>
                 <button class="empty-state-button" @click="handleAddProfile">
                   Add Occasion
