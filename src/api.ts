@@ -269,6 +269,70 @@ export const profileApi = {
 }
 
 /**
+ * Collaborators API (backed by CollaboratorsConcept)
+ *
+ * NOTE: The underlying concept works with a set of Users (IDs). On the frontend we:
+ * - Invite by username (resolve to a User via UserAuth)
+ * - Maintain a simple shape for display: { id, username }
+ */
+export const collaboratorsApi = {
+  /**
+   * Invite / add a collaborator by username.
+   * This will:
+   * 1) Resolve the username to a User via UserAuth._getUserByUsername
+   * 2) Call Collaborators/addCollaborator with that user
+   */
+  async addCollaboratorByUsername(username: string): Promise<{ user: User }> {
+    // Resolve user by username first to give clearer errors
+    const user = await userAuthApi.getUserByUsername(username)
+
+    await apiCall<{}>('/Collaborators/addCollaborator', {
+      user,
+    })
+
+    return { user }
+  },
+
+  /**
+   * Remove collaborator by user object or raw ID.
+   */
+  async removeCollaborator(user: User | string): Promise<void> {
+    const userPayload = typeof user === 'string' ? user : user.id || user.username || user
+    await apiCall<{}>('/Collaborators/removeCollaborator', {
+      user: userPayload,
+    })
+  },
+
+  /**
+   * Get all collaborators (returns raw IDs or user-like objects from backend).
+   * We keep the response generic and let callers resolve profiles if needed.
+   */
+  async getCollaborators(): Promise<any[]> {
+    const response = await apiCall<any[]>('/Collaborators/_getCollaborators', {})
+    return response
+  },
+
+  /**
+   * Check if a given user is already a collaborator.
+   */
+  async hasCollaborator(user: User | string): Promise<boolean> {
+    const userPayload = typeof user === 'string' ? user : user.id || user.username || user
+    const response = await apiCall<Array<{ value: boolean }>>(
+      '/Collaborators/_hasCollaborator',
+      { user: userPayload }
+    )
+    if (Array.isArray(response) && typeof response[0]?.value === 'boolean') {
+      return response[0].value
+    }
+    // Fallback: if backend returns a bare boolean
+    if (typeof (response as unknown as any) === 'boolean') {
+      return response as unknown as boolean
+    }
+    return false
+  },
+}
+
+/**
  * Relationship API
  */
 export const relationshipApi = {

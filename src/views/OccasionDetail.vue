@@ -9,6 +9,7 @@ import {
   notesApi,
   tasksApi,
   taskChecklistApi,
+  collaboratorsApi,
 } from '../api'
 
 const router = useRouter()
@@ -20,6 +21,9 @@ const userProfile = ref<{ name: string; email: string } | null>(null)
 const occasion = ref<any>(null)
 const isLoading = ref(true)
 const showUserMenu = ref(false)
+
+// Invitations dropdown (reuses same storage key as navbar on other pages)
+const showInvitesMenu = ref(false)
 
 // Event details
 const eventName = ref('')
@@ -37,10 +41,68 @@ const allRelationships = ref<any[]>([])
 const relationship = ref<any | null>(null)
 const relationshipName = ref<string | null>(null)
 
-// Collaborators
-const collaborators = ref<Array<{ id: string; name: string; initial: string }>>([])
+// Collaborators (backed by CollaboratorsConcept + local invite metadata)
+const collaborators = ref<
+  Array<{
+    id: string
+    name: string
+    initial: string
+    status: 'accepted' | 'pending'
+  }>
+>([])
 const showInviteModal = ref(false)
-const newCollaboratorEmail = ref('')
+const newCollaboratorUsername = ref('')
+
+// Local invitations store (per-user, persisted in localStorage)
+type InvitationStatus = 'pending' | 'accepted' | 'error'
+interface Invitation {
+  id: string
+  toUsername: string
+  createdAt: string
+  status: InvitationStatus
+  errorMessage?: string
+}
+
+const invitations = ref<Invitation[]>([])
+
+const invitationsStorageKey = computed(() => {
+  const user = currentUser.value
+  if (!user) return null
+  const userPart = user.id || user.username || 'unknown'
+  return `momento_collab_invites_${userPart}`
+})
+
+const pendingInvitationsCount = computed(
+  () => invitations.value.filter((i) => i.status === 'pending').length
+)
+
+const loadInvitationsFromStorage = () => {
+  if (!invitationsStorageKey.value) return
+  try {
+    const raw = localStorage.getItem(invitationsStorageKey.value)
+    if (!raw) {
+      invitations.value = []
+      return
+    }
+    const parsed = JSON.parse(raw) as Invitation[]
+    invitations.value = Array.isArray(parsed) ? parsed : []
+  } catch (error) {
+    console.error('Failed to load collaborator invitations from storage:', error)
+    invitations.value = []
+  }
+}
+
+const persistInvitationsToStorage = () => {
+  if (!invitationsStorageKey.value) return
+  try {
+    localStorage.setItem(
+      invitationsStorageKey.value,
+      JSON.stringify(invitations.value)
+    )
+  } catch (error) {
+    console.error('Failed to persist collaborator invitations to storage:', error)
+  }
+}
 
 // Planning Checklist
 const tasks = ref<Array<{
@@ -377,14 +439,62 @@ const loadOccasion = async () => {
         relationshipNotes.value = []
       }
       
-      // Initialize with current user as collaborator
-      if (userProfile.value) {
-        collaborators.value = [{
-          id: 'current-user',
-          name: userProfile.value.name,
-          initial: userProfile.value.name.charAt(0).toUpperCase()
-        }]
+      // Initialize collaborators from backend CollaboratorsConcept
+      try {
+        const backendCollaborators = await collaboratorsApi.getCollaborators()
+        const mapped = backendCollaborators.map((c: any) => {
+          const id = c.id || c._id || c.user || c
+          const username: string =
+            typeof c === 'string'
+              ? c
+              : c.username || c.name || String(id ?? 'collaborator')
+          const initial = username.charAt(0).toUpperCase()
+          return {
+            id: String(id),
+            name: username,
+            initial,
+            status: 'accepted' as const,
+          }
+        })
+
+        // Ensure current user is always visible as a collaborator
+        if (userProfile.value) {
+          const currentName = userProfile.value.name
+          const hasCurrent = mapped.some(
+            (c: any) =>
+              c.id === (currentUser.value?.id || currentUser.value?.username) ||
+              c.name === currentName
+          )
+          if (!hasCurrent) {
+            mapped.unshift({
+              id: currentUser.value?.id || currentUser.value?.username || 'current-user',
+              name: currentName,
+              initial: currentName.charAt(0).toUpperCase(),
+              status: 'accepted' as const,
+            })
+          }
+        }
+
+        collaborators.value = mapped
+      } catch (error) {
+        console.error('Error loading collaborators from backend:', error)
+        // Fallback: show only current user as collaborator for now
+        if (userProfile.value) {
+          collaborators.value = [
+            {
+              id: currentUser.value?.id || currentUser.value?.username || 'current-user',
+              name: userProfile.value.name,
+              initial: userProfile.value.name.charAt(0).toUpperCase(),
+              status: 'accepted',
+            },
+          ]
+        } else {
+          collaborators.value = []
+        }
       }
+
+      // Load any existing invitation metadata from localStorage
+      loadInvitationsFromStorage()
       
       // Load planning checklist tasks for this user from backend
       try {
@@ -731,31 +841,90 @@ const addNoteFromRelationship = (relNote: {
   showImportNotes.value = false
 }
 
-// Invite collaborator
-const inviteCollaborator = () => {
-  if (!newCollaboratorEmail.value.trim()) return
-  
-  const email = newCollaboratorEmail.value.trim()
-  const rawName = email.split('@')[0]
-  const name = rawName && rawName.length > 0 ? rawName : email
-  const initial = name.charAt(0).toUpperCase()
-  
-  // Check if already added
-  if (!collaborators.value.some(c => c.name.toLowerCase() === email.toLowerCase())) {
-    collaborators.value.push({
-      id: Date.now().toString(),
-      name: name,
-      initial: initial
-    })
+// Invite collaborator (by username, backed by CollaboratorsConcept)
+const inviteCollaborator = async () => {
+  const username = newCollaboratorUsername.value.trim()
+  if (!username) return
+
+  // Avoid duplicate collaborators by username
+  if (
+    collaborators.value.some(
+      (c) => c.name.toLowerCase() === username.toLowerCase()
+    )
+  ) {
+    alert('This user is already a collaborator.')
+    newCollaboratorUsername.value = ''
+    showInviteModal.value = false
+    return
   }
-  
-  newCollaboratorEmail.value = ''
+
+  // Create local invitation in pending state
+  const invitationId = Date.now().toString()
+  const newInvitation: Invitation = {
+    id: invitationId,
+    toUsername: username,
+    createdAt: new Date().toISOString(),
+    status: 'pending',
+  }
+  invitations.value.unshift(newInvitation)
+  persistInvitationsToStorage()
+
+  // Optimistically show pending collaborator pill
+  const initial = username.charAt(0).toUpperCase()
+  collaborators.value.push({
+    id: invitationId,
+    name: username,
+    initial,
+    status: 'pending',
+  })
+
+  newCollaboratorUsername.value = ''
   showInviteModal.value = false
+
+  try {
+    const { user } = await collaboratorsApi.addCollaboratorByUsername(username)
+
+    // Mark invitation as accepted
+    const invite = invitations.value.find((i) => i.id === invitationId)
+    if (invite) {
+      invite.status = 'accepted'
+      invite.errorMessage = undefined
+    }
+    persistInvitationsToStorage()
+
+    // Replace pending collaborator pill with accepted (stable id if available)
+    const userId = (user as any).id || (user as any).username || username
+    const idx = collaborators.value.findIndex((c) => c.id === invitationId)
+    if (idx !== -1) {
+      collaborators.value[idx] = {
+        id: String(userId),
+        name: (user as any).username || username,
+        initial: ((user as any).username || username).charAt(0).toUpperCase(),
+        status: 'accepted',
+      }
+    }
+  } catch (error: any) {
+    console.error('Error inviting collaborator:', error)
+
+    const invite = invitations.value.find((i) => i.id === invitationId)
+    if (invite) {
+      invite.status = 'error'
+      invite.errorMessage =
+        error?.message || 'Failed to send invitation. Please try again.'
+    }
+    persistInvitationsToStorage()
+
+    alert(
+      error instanceof Error
+        ? error.message
+        : 'Failed to invite collaborator. Please check the username and try again.'
+    )
+  }
 }
 
-// Remove collaborator
+// Remove collaborator (local UI only for now)
 const removeCollaborator = (collabId: string) => {
-  collaborators.value = collaborators.value.filter(c => c.id !== collabId)
+  collaborators.value = collaborators.value.filter((c) => c.id !== collabId)
 }
 
 // Get suggestions
@@ -797,6 +966,9 @@ const handleClickOutside = (event: MouseEvent) => {
   if (!target.closest('.user-menu-wrapper')) {
     showUserMenu.value = false
   }
+  if (!target.closest('.navbar-mail-wrapper')) {
+    showInvitesMenu.value = false
+  }
 }
 
 onMounted(async () => {
@@ -832,43 +1004,114 @@ onUnmounted(() => {
           <img src="/momento-logo.png" alt="Momento" class="logo-image" />
           <span class="logo-text">Momento</span>
         </div>
-        <div class="user-menu-wrapper">
-          <button
-            @click.stop="showUserMenu = !showUserMenu"
-            class="user-menu-trigger"
-            :aria-expanded="showUserMenu"
-            aria-label="User menu"
-          >
-            <span class="user-greeting">Hi {{ getUserFirstName }}!</span>
-            <div class="user-avatar">
-              <span class="avatar-initial">
-                {{ getUserFirstName.charAt(0).toUpperCase() }}
+        <div class="navbar-right">
+          <div class="navbar-mail-wrapper">
+            <button
+              @click.stop="showInvitesMenu = !showInvitesMenu"
+              class="navbar-mail-button"
+              :aria-expanded="showInvitesMenu"
+              aria-label="Collaboration invitations"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="5" width="18" height="14" rx="2" ry="2" />
+                <polyline points="3 7 12 13 21 7" />
+              </svg>
+              <span
+                v-if="pendingInvitationsCount > 0"
+                class="navbar-mail-badge"
+              >
+                {{ pendingInvitationsCount }}
               </span>
+            </button>
+            <div
+              v-if="showInvitesMenu"
+              class="navbar-mail-dropdown"
+              @click.stop
+            >
+              <div class="navbar-mail-header">
+                Invitations
+              </div>
+              <div
+                v-if="!invitations.length"
+                class="navbar-mail-empty"
+              >
+                No invitations yet.
+              </div>
+              <div
+                v-else
+                class="navbar-mail-list"
+              >
+                <div
+                  v-for="invite in invitations"
+                  :key="invite.id"
+                  class="navbar-mail-item"
+                >
+                  <div class="navbar-mail-line">
+                    <span class="navbar-mail-username">
+                      @{{ invite.toUsername }}
+                    </span>
+                    <span
+                      class="navbar-mail-status"
+                      :class="[
+                        invite.status === 'pending' && 'status-pending',
+                        invite.status === 'accepted' && 'status-accepted',
+                        invite.status === 'error' && 'status-error',
+                      ]"
+                    >
+                      {{
+                        invite.status === 'pending'
+                          ? 'Pending'
+                          : invite.status === 'accepted'
+                            ? 'Accepted'
+                            : 'Error'
+                      }}
+                    </span>
+                  </div>
+                  <div class="navbar-mail-date">
+                    {{ new Date(invite.createdAt).toLocaleDateString() }}
+                  </div>
+                </div>
+              </div>
             </div>
-          </button>
-          <div v-if="showUserMenu" class="user-menu-dropdown" @click.stop>
-            <button class="menu-item" @click="showUserMenu = false">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                <circle cx="12" cy="7" r="4"></circle>
-              </svg>
-              View Profile
+          </div>
+          <div class="user-menu-wrapper">
+            <button
+              @click.stop="showUserMenu = !showUserMenu"
+              class="user-menu-trigger"
+              :aria-expanded="showUserMenu"
+              aria-label="User menu"
+            >
+              <span class="user-greeting">Hi {{ getUserFirstName }}!</span>
+              <div class="user-avatar">
+                <span class="avatar-initial">
+                  {{ getUserFirstName.charAt(0).toUpperCase() }}
+                </span>
+              </div>
             </button>
-            <button class="menu-item" @click="showUserMenu = false">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="3"></circle>
-                <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path>
-              </svg>
-              Settings
-            </button>
-            <button class="menu-item menu-item-danger" @click="handleLogout">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                <polyline points="16 17 21 12 16 7"></polyline>
-                <line x1="21" y1="12" x2="9" y2="12"></line>
-              </svg>
-              Log Out
-            </button>
+            <div v-if="showUserMenu" class="user-menu-dropdown" @click.stop>
+              <button class="menu-item" @click="showUserMenu = false">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+                View Profile
+              </button>
+              <button class="menu-item" @click="showUserMenu = false">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="3"></circle>
+                  <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path>
+                </svg>
+                Settings
+              </button>
+              <button class="menu-item menu-item-danger" @click="handleLogout">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                  <polyline points="16 17 21 12 16 7"></polyline>
+                  <line x1="21" y1="12" x2="9" y2="12"></line>
+                </svg>
+                Log Out
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -960,9 +1203,20 @@ onUnmounted(() => {
               v-for="collab in collaborators"
               :key="collab.id"
               class="collaborator-pill"
+              :class="{
+                'collaborator-pill-pending': collab.status === 'pending'
+              }"
             >
               <span class="pill-avatar">{{ collab.initial }}</span>
-              <span class="pill-name">{{ collab.name }}</span>
+              <div class="pill-main">
+                <span class="pill-name">{{ collab.name }}</span>
+                <span
+                  v-if="collab.status === 'pending'"
+                  class="pill-status pill-status-pending"
+                >
+                  Pending invite
+                </span>
+              </div>
               <button
                 v-if="collab.id !== 'current-user'"
                 @click="removeCollaborator(collab.id)"
@@ -1449,11 +1703,11 @@ onUnmounted(() => {
         </div>
         <div class="modal-body">
           <div class="form-group">
-            <label class="form-label">Email Address</label>
+            <label class="form-label">Username</label>
             <input
-              v-model="newCollaboratorEmail"
-              type="email"
-              placeholder="collaborator@example.com"
+              v-model="newCollaboratorUsername"
+              type="text"
+              placeholder="collaborator-username"
               class="form-input"
               @keyup.enter="inviteCollaborator"
             />

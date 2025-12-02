@@ -15,6 +15,22 @@ const occasions = ref<any[]>([])
 const showUserMenu = ref(false)
 const isLoadingRelationships = ref(false)
 
+// Invitations (shared across views via localStorage)
+const showInvitesMenu = ref(false)
+const invitations = ref<
+  Array<{
+    id: string
+    toUsername: string
+    createdAt: string
+    status: 'pending' | 'accepted' | 'error'
+    errorMessage?: string
+  }>
+>([])
+
+const pendingInvitationsCount = computed(
+  () => invitations.value.filter((i) => i.status === 'pending').length
+)
+
 // Drag and drop state
 const draggedIndex = ref<number | null>(null)
 const dragOverIndex = ref<number | null>(null)
@@ -39,6 +55,24 @@ const displayedRelationships = computed(() => {
 const hasMoreRelationships = computed(() => {
   return allRelationships.value.length > pinnedRelationships.value.length
 })
+
+// Load invitations from localStorage
+const loadInvitations = () => {
+  if (!currentUser.value) return
+  const key = `momento_collab_invites_${currentUser.value.id || currentUser.value.username}`
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) {
+      invitations.value = []
+      return
+    }
+    const parsed = JSON.parse(raw)
+    invitations.value = Array.isArray(parsed) ? parsed : []
+  } catch (error) {
+    console.error('Failed to load collaborator invitations:', error)
+    invitations.value = []
+  }
+}
 
 // Helper function to normalize date to start of day for comparison
 const normalizeToDay = (date: Date): Date => {
@@ -329,12 +363,16 @@ const handleClickOutside = (event: MouseEvent) => {
   if (!target.closest('.user-menu-wrapper')) {
     showUserMenu.value = false
   }
+  if (!target.closest('.navbar-mail-wrapper')) {
+    showInvitesMenu.value = false
+  }
 }
 
 onMounted(async () => {
   const savedUser = sessionManager.getUser()
   if (savedUser) {
     currentUser.value = savedUser
+    loadInvitations()
     await loadDashboardData()
   } else {
     router.push('/')
@@ -358,43 +396,114 @@ onUnmounted(() => {
             <img src="/momento-logo.png" alt="Momento" class="logo-image" />
             <span class="logo-text">Momento</span>
           </div>
-          <div class="user-menu-wrapper">
-            <button
-              @click.stop="showUserMenu = !showUserMenu"
-              class="user-menu-trigger"
-              :aria-expanded="showUserMenu"
-              aria-label="User menu"
-            >
-              <span class="user-greeting">Hi {{ getUserFirstName }}!</span>
-              <div class="user-avatar">
-                <span class="avatar-initial">
-                  {{ getUserFirstName.charAt(0).toUpperCase() }}
+          <div class="navbar-right">
+            <div class="navbar-mail-wrapper">
+              <button
+                @click.stop="showInvitesMenu = !showInvitesMenu"
+                class="navbar-mail-button"
+                :aria-expanded="showInvitesMenu"
+                aria-label="Collaboration invitations"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="5" width="18" height="14" rx="2" ry="2" />
+                  <polyline points="3 7 12 13 21 7" />
+                </svg>
+                <span
+                  v-if="pendingInvitationsCount > 0"
+                  class="navbar-mail-badge"
+                >
+                  {{ pendingInvitationsCount }}
                 </span>
+              </button>
+              <div
+                v-if="showInvitesMenu"
+                class="navbar-mail-dropdown"
+                @click.stop
+              >
+                <div class="navbar-mail-header">
+                  Invitations
+                </div>
+                <div
+                  v-if="!invitations.length"
+                  class="navbar-mail-empty"
+                >
+                  No invitations yet.
+                </div>
+                <div
+                  v-else
+                  class="navbar-mail-list"
+                >
+                  <div
+                    v-for="invite in invitations"
+                    :key="invite.id"
+                    class="navbar-mail-item"
+                  >
+                    <div class="navbar-mail-line">
+                      <span class="navbar-mail-username">
+                        @{{ invite.toUsername }}
+                      </span>
+                      <span
+                        class="navbar-mail-status"
+                        :class="[
+                          invite.status === 'pending' && 'status-pending',
+                          invite.status === 'accepted' && 'status-accepted',
+                          invite.status === 'error' && 'status-error',
+                        ]"
+                      >
+                        {{
+                          invite.status === 'pending'
+                            ? 'Pending'
+                            : invite.status === 'accepted'
+                              ? 'Accepted'
+                              : 'Error'
+                        }}
+                      </span>
+                    </div>
+                    <div class="navbar-mail-date">
+                      {{ new Date(invite.createdAt).toLocaleDateString() }}
+                    </div>
+                  </div>
+                </div>
               </div>
-            </button>
-            <div v-if="showUserMenu" class="user-menu-dropdown" @click.stop>
-              <button class="menu-item" @click="showUserMenu = false">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                  <circle cx="12" cy="7" r="4"></circle>
-                </svg>
-                View Profile
+            </div>
+            <div class="user-menu-wrapper">
+              <button
+                @click.stop="showUserMenu = !showUserMenu"
+                class="user-menu-trigger"
+                :aria-expanded="showUserMenu"
+                aria-label="User menu"
+              >
+                <span class="user-greeting">Hi {{ getUserFirstName }}!</span>
+                <div class="user-avatar">
+                  <span class="avatar-initial">
+                    {{ getUserFirstName.charAt(0).toUpperCase() }}
+                  </span>
+                </div>
               </button>
-              <button class="menu-item" @click="showUserMenu = false">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="3"></circle>
-                  <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path>
-                </svg>
-                Settings
-              </button>
-              <button class="menu-item menu-item-danger" @click="handleLogout">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                  <polyline points="16 17 21 12 16 7"></polyline>
-                  <line x1="21" y1="12" x2="9" y2="12"></line>
-                </svg>
-                Log Out
-              </button>
+              <div v-if="showUserMenu" class="user-menu-dropdown" @click.stop>
+                <button class="menu-item" @click="showUserMenu = false">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                  </svg>
+                  View Profile
+                </button>
+                <button class="menu-item" @click="showUserMenu = false">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path>
+                  </svg>
+                  Settings
+                </button>
+                <button class="menu-item menu-item-danger" @click="handleLogout">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                    <polyline points="16 17 21 12 16 7"></polyline>
+                    <line x1="21" y1="12" x2="9" y2="12"></line>
+                  </svg>
+                  Log Out
+                </button>
+              </div>
             </div>
           </div>
         </div>
