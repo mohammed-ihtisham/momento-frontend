@@ -5,6 +5,7 @@ import AddProfile from './views/AddProfile.vue'
 import RelationshipDetail from './views/RelationshipDetail.vue'
 import ViewAll from './views/ViewAll.vue'
 import ViewAllOccasions from './views/ViewAllOccasions.vue'
+import OccasionDetail from './views/OccasionDetail.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -38,6 +39,13 @@ const router = createRouter({
       path: '/occasions',
       name: 'view-all-occasions',
       component: ViewAllOccasions,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/occasion/:id',
+      name: 'occasion-detail',
+      component: OccasionDetail,
+      props: true,
       meta: { requiresAuth: true },
     },
   ],

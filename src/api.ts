@@ -612,6 +612,160 @@ export const occasionsApi = {
 }
 
 /**
+ * Task API (backed by TaskConcept)
+ */
+export const tasksApi = {
+  /**
+   * Create a new task for a user
+   * POST /api/Task/createTask
+   */
+  async createTask(owner: User, description: string): Promise<any> {
+    const response = await apiCall<ApiResponse<any>>('/Task/createTask', {
+      owner,
+      description,
+    })
+    if (!response.task) {
+      throw new Error('Failed to create task')
+    }
+    return response.task
+  },
+
+  /**
+   * Update a task's description
+   * POST /api/Task/updateTaskDescription
+   */
+  async updateTaskDescription(task: any, description: string): Promise<any> {
+    const body: any = { task, description }
+    const response = await apiCall<ApiResponse<any>>(
+      '/Task/updateTaskDescription',
+      body
+    )
+    if (!response.task) {
+      throw new Error('Failed to update task')
+    }
+    return response.task
+  },
+
+  /**
+   * Delete a task
+   * POST /api/Task/deleteTask
+   */
+  async deleteTask(task: any): Promise<void> {
+    await apiCall('/Task/deleteTask', { task })
+  },
+
+  /**
+   * Get all tasks for a user
+   * POST /api/Task/_getTasks
+   */
+  async getTasks(
+    owner: User
+  ): Promise<
+    Array<{
+      task: any
+      description: string
+    }>
+  > {
+    const response = await apiCall<
+      Array<{
+        task: any
+        description: string
+      }>
+    >('/Task/_getTasks', { owner })
+    return response
+  },
+}
+
+/**
+ * TaskChecklist API (backed by TaskChecklistConcept)
+ */
+export const taskChecklistApi = {
+  /**
+   * Add a task to the checklist for a user
+   * POST /api/TaskChecklist/addTask
+   */
+  async addTask(owner: User, task: any): Promise<any> {
+    const response = await apiCall<ApiResponse<any>>('/TaskChecklist/addTask', {
+      owner,
+      task,
+    })
+    if (!response.entry) {
+      throw new Error('Failed to add task to checklist')
+    }
+    return response.entry
+  },
+
+  /**
+   * Remove a task from the checklist for a user
+   * POST /api/TaskChecklist/removeTask
+   */
+  async removeTask(owner: User, task: any): Promise<void> {
+    await apiCall('/TaskChecklist/removeTask', { owner, task })
+  },
+
+  /**
+   * Mark a task as complete in the checklist
+   * POST /api/TaskChecklist/markComplete
+   */
+  async markComplete(owner: User, task: any): Promise<void> {
+    await apiCall('/TaskChecklist/markComplete', { owner, task })
+  },
+
+  /**
+   * Mark a task as incomplete in the checklist
+   * POST /api/TaskChecklist/markIncomplete
+   */
+  async markIncomplete(owner: User, task: any): Promise<void> {
+    await apiCall('/TaskChecklist/markIncomplete', { owner, task })
+  },
+
+  /**
+   * Get all checklist entries for a user
+   * POST /api/TaskChecklist/_getChecklist
+   */
+  async getChecklist(
+    owner: User
+  ): Promise<
+    Array<{
+      task: any
+      completed: boolean
+    }>
+  > {
+    const response = await apiCall<
+      Array<{
+        task: any
+        completed: boolean
+      }>
+    >('/TaskChecklist/_getChecklist', { owner })
+    return response
+  },
+
+  /**
+   * Get all completed tasks for a user
+   * POST /api/TaskChecklist/_getCompletedTasks
+   */
+  async getCompletedTasks(owner: User): Promise<any[]> {
+    const response = await apiCall<any[]>(
+      '/TaskChecklist/_getCompletedTasks',
+      { owner }
+    )
+    return response
+  },
+
+  /**
+   * Get all incomplete tasks for a user
+   * POST /api/TaskChecklist/_getIncompleteTasks
+   */
+  async getIncompleteTasks(owner: User): Promise<any[]> {
+    const response = await apiCall<any[]>(
+      '/TaskChecklist/_getIncompleteTasks',
+      { owner }
+    )
+    return response
+  },
+}
+
+/**
  * Session management
  */
 export const sessionManager = {

@@ -225,7 +225,9 @@ const handleRelationshipClick = (relationship: any) => {
 
 // Handle occasion card click
 const handleOccasionClick = (occasion: any) => {
-  console.log('Occasion clicked:', occasion)
+  // Use the same ID strategy as the occasions list/detail views
+  const occasionId = occasion.occasion?.id || JSON.stringify(occasion.occasion)
+  router.push(`/occasion/${occasionId}`)
 }
 
 // Drag and drop handlers

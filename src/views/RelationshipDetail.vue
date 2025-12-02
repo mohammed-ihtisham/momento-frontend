@@ -143,9 +143,13 @@ const loadUserProfile = async () => {
   }
 };
 
-// Handle back navigation
+// Handle back navigation (return to previous page when possible)
 const handleBack = () => {
-  router.push("/");
+  if (window.history.length > 1) {
+    router.back();
+  } else {
+    router.push("/");
+  }
 };
 
 // Logout function

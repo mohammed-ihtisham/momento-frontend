@@ -1,155 +1,111 @@
-1️⃣ Purpose of the Screen
+Goal: Design a clean, modern, friendly yet productivity-focused Event Planning Dashboard screen for the Momento app. This screen allows users to coordinate event planning with collaborators, assign tasks, share notes, and receive smart gift suggestions.
 
-This view helps users introduce a new person into their care network. The experience should feel friendly and celebratory, reinforcing the emotional value of adding someone special.
+Overall Visual Style
 
-2️⃣ Page Layout & Structure
+Minimal and elegant layout with plenty of white space
 
-Overall visual
+Sophisticated extended rounded rectangles for cards and buttons
 
-Centered form layout with generous whitespace
+Soft, warm accent colors (brand: deep purple + coral + cool teal)
 
-Soft neutral background (light grey or off-white)
+Typography hierarchy:
 
-Card-style form container with subtle depth (shadow or thin border)
+Headings: bold, humanist sans-serif (e.g., Inter, SF Pro, Poppins)
 
-Top Bar
+Body text: lightweight and legible
 
-Persistent mini-header similar to Home Dashboard:
+Subtle drop shadows for elevation
 
-Left: Brand mark (“Momento”)
+Page Structure
 
-Right: User mini-profile + greeting (clickable → account menu)
+Top Navigation Section
 
-3️⃣ Page Title + Warm Personalized Tagline
+Left-aligned:
 
-Centered near top of form:
+“< Back” link in subtle neutral text, hover underline
 
-Primary Title
+Event Name: Large, bold title (editable)
 
-Add New Profile
+Remaining days: friendly secondary text (e.g., “6 days left”) with small calendar icon
 
-Large, bold font to establish importance
+Right-aligned:
 
-Center-aligned
+Greeting with user avatar: “Hi Ahmad!”
 
-Subtitle
+Pencil icon “Edit Event Details” — outlined rounded button, light hover glow
 
-Let’s get to know someone special ❤
+Collaborators Section
 
-Smaller and friendly
+Subtitle: “Collaborators”
 
-Soft grey tone to feel warm and supportive
+Pill-style collaborator tags with name + subtle avatar initial
 
-4️⃣ Form Structure
-A. Name Input Field
+Teal tone for pills, hover: glowing border
 
-Label: Name
+“Invite +” pill styled as a ghost button with teal border → triggers modal for inviting collaborators
 
-Input:
+Planning Checklist
 
-Placeholder: “Enter their name”
+Section title: “Planning Checklist”
 
-Rounded corners with subtle border or underscored line style
+Each task row styled as a horizontal task card:
 
-Clear focus state: highlighted bottom border or soft glow
+Left: square checkbox with animated check state and priority color highlight
 
-B. Relationship Dropdown Selector
+Task name: clear editable text
 
-Label: Relationship
+Right: "Assignees" area — same pill-style user tags (compact)
 
-Dropdown appearance:
+On hover: card border accent + slight elevation
 
-Same style as text input for consistency
+Add new task CTA at bottom (icon + label)
 
-Chevron icon aligned to right
+Shared Notes
 
-Placeholder: “Select a relationship”
+Subtitle with small helper text:
+"Each user can selectively choose to share notes they gathered on person."
 
-Options (suggested default list):
+Note items appear as soft bordered cards with inline editing
 
-Family
+Each note aligned with an assignees pill group to the right
 
-Friend
+Icons for edit/delete appear only on hover to reduce clutter
 
-Partner
+Primary Bottom CTA
 
-Colleague
+Full-width primary action bar fixed at bottom of viewport
 
-Other (opens subtle text input if selected)
+Purple gradient button with a lightbulb icon:
+“Get Suggestions”
 
-Dropdown panel:
+Purpose: triggers LLM call to get gift/idea suggestions
 
-Slight overlay shadow
+Hover: subtle pulse animation indicating intelligence/AI
 
-Rounded corners
+Micro-Interactions & Feedback
 
-Smooth open animation
+Smooth transitions for task/note editing
 
-5️⃣ Create Profile Button (Primary Action)
+Drag-drop reordering of tasks
 
-Full-width button inside form column
+Toast confirmations when collaborator added, task updated, etc.
 
-Pill-shaped with high contrast background (brand accent color)
+Soft confetti animation after suggestion results come in
 
-Text: Create Profile
+Icons & Visual Identity
 
-Large, semi-bold typography
+Use outlined icon style
 
-White or dark text depending on button color
+Light playful touches (e.g., rounded corners, mild gradients) while retaining professional event-planning reliability
 
-Hover & pressed states:
+Final Output Expectations
 
-Slight elevation
+Produce:
 
-Color shift or gentle animation for responsiveness
+A visually polished, production-ready layout
 
-Disabled state (until form valid):
+Clear UI states (empty tasks, hover, editing)
 
-Lighter tone + no hover elevation
+Desktop-first design with consideration for tablet & mobile responsiveness
 
-Submitting state:
-
-Button shows spinner with text like "Creating..."
-
-6️⃣ Micro-copy & Validation Rules
-Field Validation
-
-Name: required, at least 1 character
-
-Relationship: required selection
-
-Error messaging
-
-Inline text appears below field (small red accent)
-
-e.g., “Please enter a name”
-
-e.g., “Please select a relationship”
-
-UI should not allow submission until all required fields are valid.
-
-7️⃣ Navigation & Behavior
-Action	Result
-Successful save	Calls Profile.createProfile → navigate to that profile’s detail page with toast success message
-Cancel/back (implicit)	Standard browser back or UI icon if included
-Dropdown “Other” selection	Opens mini supplementary input for relationship label
-
-All data sent is mapped to backend concepts:
-
-Link newly created profile to current logged-in user via session data
-
-8️⃣ Emotional Touches
-
-Success feedback should feel positive:
-
-Confetti micro-animation OR
-
-Small friendly toast like:
-
-🎉 Profile created! Let’s make great memories.
-
-An optional cute illustrated placeholder silhouette can appear above the name field to hint profile personalization coming later
-
-Final Vision Summary
-
-This screen turns a simple form into a meaningful act, focusing on care and connection. Clean typography, thoughtful spacing, and intuitive controls ensure adding a relationship is frictionless and warm. It's efficient while still feeling personal — true to the core of Momento.
+Exportable component styles for engineers

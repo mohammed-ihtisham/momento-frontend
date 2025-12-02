@@ -184,9 +184,19 @@ const loadUserProfile = async () => {
   }
 }
 
-// Handle back navigation
+// Handle back navigation (return to previous page when possible)
 const handleBack = () => {
-  router.push('/')
+  if (window.history.length > 1) {
+    router.back()
+  } else {
+    router.push('/')
+  }
+}
+
+// Navigate to occasion detail
+const viewOccasionDetail = (occasion: any) => {
+  const occasionId = occasion.occasion?.id || JSON.stringify(occasion.occasion)
+  router.push(`/occasion/${occasionId}`)
 }
 
 // Logout function
@@ -572,6 +582,7 @@ onUnmounted(() => {
               :key="occasion.occasion?.id || occasion.name"
               class="occasion-card-detailed"
               :class="`status-${getDateStatus(occasion.date)}`"
+              @click="viewOccasionDetail(occasion)"
             >
               <div class="occasion-card-header">
                 <div class="occasion-card-title-row">
@@ -660,6 +671,7 @@ onUnmounted(() => {
                   :key="occasion.occasion?.id || occasion.name"
                   class="occasion-card-compact"
                   :class="`status-${getDateStatus(occasion.date)}`"
+                  @click="viewOccasionDetail(occasion)"
                 >
                   <div class="occasion-compact-header">
                     <h4 class="occasion-compact-name">{{ occasion.name }}</h4>
