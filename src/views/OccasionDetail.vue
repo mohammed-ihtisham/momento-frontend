@@ -26,8 +26,14 @@ const eventName = ref('')
 const eventDate = ref('')
 const isEditingEventName = ref(false)
 const showEditEventModal = ref(false)
+const editEventName = ref('')
+const editEventDate = ref('')
+const editEventDescription = ref('')
+const editEventPerson = ref<any>(null)
+const isUpdatingEvent = ref(false)
 
 // Relationship context (person for this occasion)
+const allRelationships = ref<any[]>([])
 const relationship = ref<any | null>(null)
 const relationshipName = ref<string | null>(null)
 
@@ -106,14 +112,13 @@ const isLoadingRelationshipNotes = ref(false)
 const showImportNotes = ref(false)
 
 // Only show relationship notes that haven't already been attached
-// to this occasion's Shared Notes list.
+// to this occasion's Shared Notes list (regardless of how they were added).
 const availableRelationshipNotes = computed(() =>
   relationshipNotes.value.filter(relNote => {
     const relNoteId = relNote.note?.id
     const relTitle = relNote.title
 
     return !notes.value.some(n => {
-      if (n.source !== 'relationship') return false
       const noteId = n.noteRef?.id
       const noteTitle = n.title
 
@@ -173,6 +178,70 @@ const highPriorityOpenTasks = computed(
 )
 const notesCount = computed(() => notes.value.length)
 
+// Open Edit Event modal, pre‑filling current values (mirrors the create/edit
+// occasion modal used in the All Occasions view)
+const openEditEventModal = () => {
+  if (!occasion.value) return
+
+  editEventName.value = eventName.value
+  editEventPerson.value = relationshipName.value
+  editEventDescription.value = (occasion.value as any)?.description || ''
+
+  if (eventDate.value) {
+    const date = new Date(eventDate.value)
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    editEventDate.value = `${year}-${month}-${day}`
+  } else {
+    editEventDate.value = ''
+  }
+
+  showEditEventModal.value = true
+}
+
+// Persist event updates to backend
+const handleUpdateEvent = async () => {
+  if (!occasion.value) return
+
+  const name = editEventName.value.trim()
+  const dateStr = editEventDate.value
+  const person = editEventPerson.value
+  const description = editEventDescription.value.trim()
+
+  if (!name || !dateStr || !person) return
+
+  isUpdatingEvent.value = true
+  try {
+    const newDate = new Date(dateStr)
+
+    await occasionsApi.updateOccasion(
+      occasion.value.occasion,
+      // person (name of relationship)
+      person,
+      name,
+      newDate
+    )
+
+    // Update local state to reflect saved changes
+    eventName.value = name
+    eventDate.value = newDate.toISOString()
+    relationshipName.value = person
+    occasion.value.person = person
+    ;(occasion.value as any).description = description
+    showEditEventModal.value = false
+  } catch (error) {
+    console.error('Error updating event details:', error)
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'Failed to update event. Please try again.'
+    alert(message)
+  } finally {
+    isUpdatingEvent.value = false
+  }
+}
+
 // Load user profile
 const loadUserProfile = async () => {
   if (!currentUser.value) return
@@ -214,10 +283,18 @@ const loadOccasion = async () => {
 
       // Load relationship object and existing notes for this person
       try {
-        const allRelationships = await relationshipApi.getRelationships(
+        const relationshipsData = await relationshipApi.getRelationships(
           currentUser.value
         )
-        const matchingRelationship = allRelationships.find(
+
+        allRelationships.value = relationshipsData.map((r) => ({
+          id: r.relationship?.id || r.name,
+          name: r.name,
+          relationshipType: r.relationshipType,
+          relationship: r.relationship,
+        }))
+
+        const matchingRelationship = allRelationships.value.find(
           r => r.name === found.person
         )
 
@@ -838,7 +915,7 @@ onUnmounted(() => {
           </div>
           <div class="occasion-top-right">
             <button 
-              @click="showEditEventModal = true"
+              @click="openEditEventModal"
               class="edit-event-button"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1190,6 +1267,81 @@ onUnmounted(() => {
         </section>
       </div>
     </main>
+
+    <!-- Edit Occasion Modal (matches All Occasions edit/create modal) -->
+    <div v-if="showEditEventModal" class="modal-overlay" @click.self="showEditEventModal = false">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title">Edit Occasion</h2>
+          <button @click="showEditEventModal = false" class="modal-close" aria-label="Close">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">Occasion Name *</label>
+              <input
+                v-model="editEventName"
+                type="text"
+                placeholder="e.g., Birthday, Anniversary"
+                class="form-input"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Date *</label>
+              <input
+                v-model="editEventDate"
+                type="date"
+                class="form-input"
+                required
+              />
+            </div>
+            <div class="form-group form-group-full">
+              <label class="form-label">Person *</label>
+              <select v-model="editEventPerson" class="form-input" required>
+                <option :value="null">Select a person</option>
+                <option
+                  v-for="rel in allRelationships"
+                  :key="rel.id"
+                  :value="rel.name"
+                >
+                  {{ rel.name }} ({{ rel.relationshipType }})
+                </option>
+              </select>
+            </div>
+            <div class="form-group form-group-full">
+              <label class="form-label">Description (Optional)</label>
+              <textarea
+                v-model="editEventDescription"
+                placeholder="Add any notes or details..."
+                class="form-textarea"
+                rows="2"
+              ></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="showEditEventModal = false" class="button-secondary">Cancel</button>
+          <button
+            @click="handleUpdateEvent"
+            class="button-primary"
+            :disabled="
+              isUpdatingEvent ||
+              !editEventName.trim() ||
+              !editEventDate ||
+              !editEventPerson
+            "
+          >
+            {{ isUpdatingEvent ? 'Updating...' : 'Update Occasion' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- Occasion Note Modal -->
     <transition name="modal">
