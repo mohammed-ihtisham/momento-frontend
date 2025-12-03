@@ -1,352 +1,377 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { sessionManager, relationshipApi, profileApi, occasionsApi, collaboratorsApi } from '../api'
+import { ref, computed, onMounted, onUnmounted } from "vue";
+import { useRouter } from "vue-router";
+import {
+  sessionManager,
+  relationshipApi,
+  profileApi,
+  occasionsApi,
+  collaboratorsApi,
+} from "../api";
 
-const router = useRouter()
+const router = useRouter();
 
 // App state
-const currentUser = ref<any>(null)
-const userProfile = ref<{ name: string; email: string } | null>(null)
-const allRelationships = ref<any[]>([])
+const currentUser = ref<any>(null);
+const userProfile = ref<{
+  name: string;
+  email: string;
+  username?: string;
+} | null>(null);
+const allRelationships = ref<any[]>([]);
 // Frontend shape: map backend fields (person, occasionType) into
 // name (occasion label) and relationshipName (person name) so the UI
 // can stay focused on \"occasion\" and \"person\"
-const occasions = ref<Array<{
-  occasion: any
-  name: string // maps to backend occasionType
-  date: string
-  person: string
-  description?: string
-  relationshipName?: string // person name, mirrors person
-  relationshipType?: string
-}>>([])
-const isLoading = ref(true)
-const showUserMenu = ref(false)
+const occasions = ref<
+  Array<{
+    occasion: any;
+    name: string; // maps to backend occasionType
+    date: string;
+    person: string;
+    description?: string;
+    relationshipName?: string; // person name, mirrors person
+    relationshipType?: string;
+  }>
+>([]);
+const isLoading = ref(true);
+const showUserMenu = ref(false);
 
 // Invitations dropdown (inbox)
-const showInvitesMenu = ref(false)
+const showInvitesMenu = ref(false);
 const invitations = ref<
   Array<{
-    id: string
-    invitePayload: any
-    toUsername: string
-    createdAt: string
-    status: 'pending' | 'accepted' | 'error'
-    errorMessage?: string
+    id: string;
+    invitePayload: any;
+    toUsername: string;
+    createdAt: string;
+    status: "pending" | "accepted" | "error";
+    errorMessage?: string;
   }>
->([])
+>([]);
 
 const pendingInvitationsCount = computed(
-  () => invitations.value.filter((i) => i.status === 'pending').length
-)
+  () => invitations.value.filter((i) => i.status === "pending").length
+);
 
 // Modal state
-const showCreateModal = ref(false)
-const showEditModal = ref(false)
-const showDeleteModal = ref(false)
-const editingOccasion = ref<any>(null)
-const deletingOccasion = ref<any>(null)
+const showCreateModal = ref(false);
+const showEditModal = ref(false);
+const showDeleteModal = ref(false);
+const editingOccasion = ref<any>(null);
+const deletingOccasion = ref<any>(null);
 
 // Form state
-const formName = ref('')
-const formDate = ref('')
-const formDescription = ref('')
-const formRelationship = ref<any>(null)
-const isSubmitting = ref(false)
+const formName = ref("");
+const formDate = ref("");
+const formDescription = ref("");
+const formRelationship = ref<any>(null);
+const isSubmitting = ref(false);
 
 // Filter and sort state
-const selectedPersonFilter = ref<string | null>(null)
-const sortBy = ref<'date-asc' | 'date-desc' | 'name-asc' | 'name-desc'>('date-asc')
-const searchQuery = ref('')
+const selectedPersonFilter = ref<string | null>(null);
+const sortBy = ref<"date-asc" | "date-desc" | "name-asc" | "name-desc">(
+  "date-asc"
+);
+const searchQuery = ref("");
 
 // Get user's first name from profile
 const getUserFirstName = computed(() => {
   if (userProfile.value?.name) {
-    const firstName = userProfile.value.name.split(' ')[0]
-    return firstName || userProfile.value.name || 'User'
+    const firstName = userProfile.value.name.split(" ")[0];
+    return (
+      firstName ||
+      userProfile.value.name ||
+      userProfile.value.username ||
+      "User"
+    );
   }
-  return 'User'
-})
+  return userProfile.value?.username || currentUser.value?.username || "User";
+});
 
 // Load incoming invitations for the current user from backend
 const loadInvitations = async () => {
   try {
-    const backendInvites = await collaboratorsApi.getIncomingInvites()
-    invitations.value = (backendInvites || [])
-      .filter((inv: any) => inv.status === 'pending')
-      .map((inv: any) => {
-        const rawInvite = inv.invite
-        const sender = inv.sender
-        const username =
-          typeof sender === 'string'
-            ? sender
-            : sender?.username || sender?.name || 'someone'
-
-        return {
-          id: String(rawInvite?.id ?? rawInvite ?? inv.id ?? ''),
-          invitePayload: rawInvite,
-          toUsername: username,
-          createdAt: inv.createdAt,
-          status: 'pending' as const,
-        }
-      })
+    // const backendInvites = await collaboratorsApi.getIncomingInvites()
+    // invitations.value = (backendInvites || [])
+    //   .filter((inv: any) => inv.status === 'pending')
+    //   .map((inv: any) => {
+    //     const rawInvite = inv.invite
+    //     const sender = inv.sender
+    //     const username =
+    //       typeof sender === 'string'
+    //         ? sender
+    //         : sender?.username || sender?.name || 'someone'
+    //     return {
+    //       id: String(rawInvite?.id ?? rawInvite ?? inv.id ?? ''),
+    //       invitePayload: rawInvite,
+    //       toUsername: username,
+    //       createdAt: inv.createdAt,
+    //       status: 'pending' as const,
+    //     }
+    //   })
   } catch (error) {
-    console.error('Failed to load collaborator invitations:', error)
-    invitations.value = []
+    console.error("Failed to load collaborator invitations:", error);
+    invitations.value = [];
   }
-}
+};
 
-const handleAcceptInvite = async (invite: (typeof invitations.value)[number]) => {
+const handleAcceptInvite = async (
+  invite: (typeof invitations.value)[number]
+) => {
   try {
-    await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id)
-    invitations.value = invitations.value.filter((i) => i.id !== invite.id)
+    await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id);
+    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
   } catch (error: any) {
-    console.error('Error accepting invitation:', error)
+    console.error("Error accepting invitation:", error);
     alert(
       error instanceof Error
         ? error.message
-        : 'Failed to accept invitation. Please try again.'
-    )
+        : "Failed to accept invitation. Please try again."
+    );
   }
-}
+};
 
-const handleDeclineInvite = async (invite: (typeof invitations.value)[number]) => {
+const handleDeclineInvite = async (
+  invite: (typeof invitations.value)[number]
+) => {
   try {
-    await collaboratorsApi.declineInvite(invite.id)
-    invitations.value = invitations.value.filter((i) => i.id !== invite.id)
+    await collaboratorsApi.declineInvite(invite.id);
+    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
   } catch (error: any) {
-    console.error('Error declining invitation:', error)
+    console.error("Error declining invitation:", error);
     alert(
       error instanceof Error
         ? error.message
-        : 'Failed to decline invitation. Please try again.'
-    )
+        : "Failed to decline invitation. Please try again."
+    );
   }
-}
+};
 
 // Get unique person names for filter
 const relationshipNames = computed(() => {
-  const names = new Set<string>()
-  occasions.value.forEach(occ => {
+  const names = new Set<string>();
+  occasions.value.forEach((occ) => {
     if (occ.relationshipName || occ.person) {
-      names.add(occ.relationshipName || occ.person)
+      names.add(occ.relationshipName || occ.person);
     }
-  })
-  return Array.from(names).sort()
-})
+  });
+  return Array.from(names).sort();
+});
 
 // Filtered and sorted occasions
 const filteredOccasions = computed(() => {
-  let filtered = [...occasions.value]
+  let filtered = [...occasions.value];
 
   // Filter by person
   if (selectedPersonFilter.value) {
     filtered = filtered.filter(
-      occ =>
+      (occ) =>
         occ.relationshipName === selectedPersonFilter.value ||
         occ.person === selectedPersonFilter.value
-    )
+    );
   }
 
   // Filter by search query
   if (searchQuery.value.trim()) {
-    const query = searchQuery.value.toLowerCase()
-    filtered = filtered.filter(occ => 
-      occ.name.toLowerCase().includes(query) ||
-      occ.relationshipName?.toLowerCase().includes(query) ||
-      occ.person.toLowerCase().includes(query) ||
-      occ.description?.toLowerCase().includes(query)
-    )
+    const query = searchQuery.value.toLowerCase();
+    filtered = filtered.filter(
+      (occ) =>
+        occ.name.toLowerCase().includes(query) ||
+        occ.relationshipName?.toLowerCase().includes(query) ||
+        occ.person.toLowerCase().includes(query) ||
+        occ.description?.toLowerCase().includes(query)
+    );
   }
 
   // Sort
   filtered.sort((a, b) => {
-    if (sortBy.value === 'date-asc') {
-      return new Date(a.date).getTime() - new Date(b.date).getTime()
-    } else if (sortBy.value === 'date-desc') {
-      return new Date(b.date).getTime() - new Date(a.date).getTime()
-    } else if (sortBy.value === 'name-asc') {
-      return a.name.localeCompare(b.name)
+    if (sortBy.value === "date-asc") {
+      return new Date(a.date).getTime() - new Date(b.date).getTime();
+    } else if (sortBy.value === "date-desc") {
+      return new Date(b.date).getTime() - new Date(a.date).getTime();
+    } else if (sortBy.value === "name-asc") {
+      return a.name.localeCompare(b.name);
     } else {
-      return b.name.localeCompare(a.name)
+      return b.name.localeCompare(a.name);
     }
-  })
+  });
 
-  return filtered
-})
+  return filtered;
+});
 
 // Group occasions by person (for organized view)
 const occasionsByPerson = computed(() => {
-  const grouped: Record<string, typeof occasions.value> = {}
-  filteredOccasions.value.forEach(occ => {
-    const personName = occ.relationshipName || occ.person || 'Unknown'
+  const grouped: Record<string, typeof occasions.value> = {};
+  filteredOccasions.value.forEach((occ) => {
+    const personName = occ.relationshipName || occ.person || "Unknown";
     if (!grouped[personName]) {
-      grouped[personName] = []
+      grouped[personName] = [];
     }
-    grouped[personName].push(occ)
-  })
-  return grouped
-})
+    grouped[personName].push(occ);
+  });
+  return grouped;
+});
 
 // View mode: 'list' or 'grouped'
-const viewMode = ref<'list' | 'grouped'>('list')
+const viewMode = ref<"list" | "grouped">("list");
 
 // Load relationships
 const loadRelationships = async () => {
-  if (!currentUser.value) return
+  if (!currentUser.value) return;
 
   try {
-    const relationshipsData = await relationshipApi.getRelationships(currentUser.value)
+    const relationshipsData = await relationshipApi.getRelationships(
+      currentUser.value
+    );
     allRelationships.value = relationshipsData.map((r) => ({
       id: r.relationship?.id || r.name,
       name: r.name,
       relationshipType: r.relationshipType,
       relationship: r.relationship,
-    }))
+    }));
   } catch (error) {
-    console.error('Error loading relationships:', error)
-    allRelationships.value = []
+    console.error("Error loading relationships:", error);
+    allRelationships.value = [];
   }
-}
+};
 
 // Load occasions
 const loadOccasions = async () => {
-  if (!currentUser.value) return
+  if (!currentUser.value) return;
 
   try {
-    isLoading.value = true
-    const occasionsData = await occasionsApi.getOccasions(currentUser.value)
-    
+    isLoading.value = true;
+    const occasionsData = await occasionsApi.getOccasions(currentUser.value);
+
     // Enrich with relationship/relationshipType info using Relationships concept.
     // Backend returns: { occasion, person, occasionType, date }
-    const enriched = occasionsData.map(occ => {
+    const enriched = occasionsData.map((occ) => {
       const relationship = allRelationships.value.find(
-        r => r.name === occ.person
-      )
+        (r) => r.name === occ.person
+      );
 
       return {
         ...occ,
         name: occ.occasionType,
         person: occ.person,
         relationshipName: occ.person,
-        relationshipType: relationship?.relationshipType || 'Unknown',
-      }
-    })
-    
-    occasions.value = enriched
+        relationshipType: relationship?.relationshipType || "Unknown",
+      };
+    });
+
+    occasions.value = enriched;
   } catch (error) {
-    console.error('Error loading occasions:', error)
-    occasions.value = []
+    console.error("Error loading occasions:", error);
+    occasions.value = [];
   } finally {
-    isLoading.value = false
+    isLoading.value = false;
   }
-}
+};
 
 // Load user profile
 const loadUserProfile = async () => {
-  if (!currentUser.value) return
-  
+  if (!currentUser.value) return;
+
   try {
-    const profile = await profileApi.getProfile(currentUser.value)
+    const profile = await profileApi.getProfile(currentUser.value);
     if (profile && profile.name) {
-      userProfile.value = profile
+      userProfile.value = profile;
     }
   } catch (error) {
-    console.error('Error loading profile:', error)
+    console.error("Error loading profile:", error);
   }
-}
+};
 
 // Handle back navigation (return to previous page when possible)
 const handleBack = () => {
   if (window.history.length > 1) {
-    router.back()
+    router.back();
   } else {
-    router.push('/')
+    router.push("/");
   }
-}
+};
 
 // Navigate to occasion detail
 const viewOccasionDetail = (occasion: any) => {
-  const occasionId = occasion.occasion?.id || JSON.stringify(occasion.occasion)
-  router.push(`/occasion/${occasionId}`)
-}
+  const occasionId = occasion.occasion?.id || JSON.stringify(occasion.occasion);
+  router.push(`/occasion/${occasionId}`);
+};
 
 // Logout function
 const handleLogout = async () => {
-  sessionManager.clearUser()
-  currentUser.value = null
-  userProfile.value = null
-  showUserMenu.value = false
-  router.replace('/')
-}
+  sessionManager.clearUser();
+  currentUser.value = null;
+  userProfile.value = null;
+  showUserMenu.value = false;
+  router.replace("/");
+};
 
 // Open create modal
 const openCreateModal = () => {
-  formName.value = ''
-  formDate.value = ''
-  formDescription.value = ''
-  formRelationship.value = null
-  showCreateModal.value = true
-}
+  formName.value = "";
+  formDate.value = "";
+  formDescription.value = "";
+  formRelationship.value = null;
+  showCreateModal.value = true;
+};
 
 // Close create modal
 const closeCreateModal = () => {
-  showCreateModal.value = false
-  formName.value = ''
-  formDate.value = ''
-  formDescription.value = ''
-  formRelationship.value = null
-}
+  showCreateModal.value = false;
+  formName.value = "";
+  formDate.value = "";
+  formDescription.value = "";
+  formRelationship.value = null;
+};
 
 // Open edit modal
 const openEditModal = (occasion: any) => {
-  editingOccasion.value = occasion
-  formName.value = occasion.name
-  formDate.value = formatDateForInput(occasion.date)
-  formDescription.value = occasion.description || ''
+  editingOccasion.value = occasion;
+  formName.value = occasion.name;
+  formDate.value = formatDateForInput(occasion.date);
+  formDescription.value = occasion.description || "";
   // Store the person name so we can send it directly to the Occasion API
-  formRelationship.value = occasion.person || occasion.relationshipName || null
-  showEditModal.value = true
-}
+  formRelationship.value = occasion.person || occasion.relationshipName || null;
+  showEditModal.value = true;
+};
 
 // Close edit modal
 const closeEditModal = () => {
-  showEditModal.value = false
-  editingOccasion.value = null
-  formName.value = ''
-  formDate.value = ''
-  formDescription.value = ''
-  formRelationship.value = null
-}
+  showEditModal.value = false;
+  editingOccasion.value = null;
+  formName.value = "";
+  formDate.value = "";
+  formDescription.value = "";
+  formRelationship.value = null;
+};
 
 // Helper function to parse date string in local timezone (avoids timezone shift)
 const parseLocalDate = (dateString: string): Date => {
-  const parts = dateString.split('-').map(Number)
-  const year = parts[0] || new Date().getFullYear()
-  const month = parts[1] || 1
-  const day = parts[2] || 1
-  return new Date(year, month - 1, day)
-}
+  const parts = dateString.split("-").map(Number);
+  const year = parts[0] || new Date().getFullYear();
+  const month = parts[1] || 1;
+  const day = parts[2] || 1;
+  return new Date(year, month - 1, day);
+};
 
 // Helper function to format date for date input (local timezone)
 const formatDateForInput = (date: Date | string): string => {
-  const d = typeof date === 'string' ? new Date(date) : date
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
+  const d = typeof date === "string" ? new Date(date) : date;
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
 
 // Create occasion
 const handleCreateOccasion = async () => {
   if (!formName.value.trim() || !formDate.value || !formRelationship.value) {
-    alert('Please fill in all required fields')
-    return
+    alert("Please fill in all required fields");
+    return;
   }
 
   try {
-    isSubmitting.value = true
+    isSubmitting.value = true;
     await occasionsApi.createOccasion(
       currentUser.value,
       // person name
@@ -354,26 +379,26 @@ const handleCreateOccasion = async () => {
       // occasionType
       formName.value.trim(),
       parseLocalDate(formDate.value)
-    )
-    closeCreateModal()
-    await loadOccasions()
+    );
+    closeCreateModal();
+    await loadOccasions();
   } catch (error: any) {
-    console.error('Error creating occasion:', error)
-    alert(error.message || 'Failed to create occasion')
+    console.error("Error creating occasion:", error);
+    alert(error.message || "Failed to create occasion");
   } finally {
-    isSubmitting.value = false
+    isSubmitting.value = false;
   }
-}
+};
 
 // Update occasion
 const handleUpdateOccasion = async () => {
   if (!formName.value.trim() || !formDate.value || !formRelationship.value) {
-    alert('Please fill in all required fields')
-    return
+    alert("Please fill in all required fields");
+    return;
   }
 
   try {
-    isSubmitting.value = true
+    isSubmitting.value = true;
     await occasionsApi.updateOccasion(
       editingOccasion.value.occasion,
       // person
@@ -381,116 +406,118 @@ const handleUpdateOccasion = async () => {
       // occasionType
       formName.value.trim(),
       parseLocalDate(formDate.value)
-    )
-    closeEditModal()
-    await loadOccasions()
+    );
+    closeEditModal();
+    await loadOccasions();
   } catch (error: any) {
-    console.error('Error updating occasion:', error)
-    alert(error.message || 'Failed to update occasion')
+    console.error("Error updating occasion:", error);
+    alert(error.message || "Failed to update occasion");
   } finally {
-    isSubmitting.value = false
+    isSubmitting.value = false;
   }
-}
+};
 
 // Open delete confirmation modal
 const openDeleteModal = (occasion: any) => {
-  deletingOccasion.value = occasion
-  showDeleteModal.value = true
-}
+  deletingOccasion.value = occasion;
+  showDeleteModal.value = true;
+};
 
 // Close delete modal
 const closeDeleteModal = () => {
-  showDeleteModal.value = false
-  deletingOccasion.value = null
-}
+  showDeleteModal.value = false;
+  deletingOccasion.value = null;
+};
 
 // Delete occasion (after confirmation)
 const handleDeleteOccasion = async () => {
-  if (!deletingOccasion.value) return
+  if (!deletingOccasion.value) return;
 
   try {
-    await occasionsApi.deleteOccasion(deletingOccasion.value.occasion)
-    closeDeleteModal()
-    await loadOccasions()
+    await occasionsApi.deleteOccasion(deletingOccasion.value.occasion);
+    closeDeleteModal();
+    await loadOccasions();
   } catch (error: any) {
-    console.error('Error deleting occasion:', error)
-    alert(error.message || 'Failed to delete occasion')
+    console.error("Error deleting occasion:", error);
+    alert(error.message || "Failed to delete occasion");
   }
-}
+};
 
 // Format date
 const formatDate = (dateString: string): string => {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
-}
+  const date = new Date(dateString);
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+};
 
 // Helper function to normalize date to start of day (midnight) for comparison
 const normalizeToDay = (date: Date): Date => {
-  const normalized = new Date(date)
-  normalized.setHours(0, 0, 0, 0)
-  return normalized
-}
+  const normalized = new Date(date);
+  normalized.setHours(0, 0, 0, 0);
+  return normalized;
+};
 
 // Format time until event
 const getTimeUntilEvent = (dateString: string): string => {
-  const date = normalizeToDay(new Date(dateString))
-  const now = normalizeToDay(new Date())
-  const diff = date.getTime() - now.getTime()
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-  
-  if (days < 0) return 'Past'
-  if (days === 0) return 'Today'
-  if (days === 1) return 'in 1 day'
-  return `in ${days} days`
-}
+  const date = normalizeToDay(new Date(dateString));
+  const now = normalizeToDay(new Date());
+  const diff = date.getTime() - now.getTime();
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+  if (days < 0) return "Past";
+  if (days === 0) return "Today";
+  if (days === 1) return "in 1 day";
+  return `in ${days} days`;
+};
 
 // Get date status class
-const getDateStatus = (dateString: string): 'past' | 'today' | 'upcoming' | 'soon' => {
-  const date = normalizeToDay(new Date(dateString))
-  const now = normalizeToDay(new Date())
-  const diff = date.getTime() - now.getTime()
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-  
-  if (days < 0) return 'past'
-  if (days === 0) return 'today'
-  if (days <= 7) return 'soon'
-  return 'upcoming'
-}
+const getDateStatus = (
+  dateString: string
+): "past" | "today" | "upcoming" | "soon" => {
+  const date = normalizeToDay(new Date(dateString));
+  const now = normalizeToDay(new Date());
+  const diff = date.getTime() - now.getTime();
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+  if (days < 0) return "past";
+  if (days === 0) return "today";
+  if (days <= 7) return "soon";
+  return "upcoming";
+};
 
 // Close user menu when clicking outside
 const handleClickOutside = (event: MouseEvent) => {
-  const target = event.target as HTMLElement
-  if (!target.closest('.user-menu-wrapper')) {
-    showUserMenu.value = false
+  const target = event.target as HTMLElement;
+  if (!target.closest(".user-menu-wrapper")) {
+    showUserMenu.value = false;
   }
-   if (!target.closest('.navbar-mail-wrapper')) {
-    showInvitesMenu.value = false
+  if (!target.closest(".navbar-mail-wrapper")) {
+    showInvitesMenu.value = false;
   }
-}
+};
 
 onMounted(async () => {
-  const savedUser = sessionManager.getUser()
+  const savedUser = sessionManager.getUser();
   if (!savedUser) {
-    router.push('/')
-    return
+    router.push("/");
+    return;
   }
-  
-  currentUser.value = savedUser
-  await loadUserProfile()
-  await loadRelationships()
-  await loadOccasions()
-  await loadInvitations()
-  
-  document.addEventListener('click', handleClickOutside)
-})
+
+  currentUser.value = savedUser;
+  await loadUserProfile();
+  await loadRelationships();
+  await loadOccasions();
+  await loadInvitations();
+
+  document.addEventListener("click", handleClickOutside);
+});
 
 onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside)
-})
+  document.removeEventListener("click", handleClickOutside);
+});
 </script>
 
 <template>
@@ -499,8 +526,19 @@ onUnmounted(() => {
     <header class="relationship-detail-header">
       <div class="relationship-detail-header-content">
         <div class="relationship-detail-logo">
-          <button @click="handleBack" class="back-button-inline" aria-label="Go back">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <button
+            @click="handleBack"
+            class="back-button-inline"
+            aria-label="Go back"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
               <polyline points="15 18 9 12 15 6"></polyline>
             </svg>
           </button>
@@ -515,7 +553,14 @@ onUnmounted(() => {
               :aria-expanded="showInvitesMenu"
               aria-label="Collaboration invitations"
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
                 <rect x="3" y="5" width="18" height="14" rx="2" ry="2" />
                 <polyline points="3 7 12 13 21 7" />
               </svg>
@@ -531,19 +576,11 @@ onUnmounted(() => {
               class="navbar-mail-dropdown"
               @click.stop
             >
-              <div class="navbar-mail-header">
-                Invitations
-              </div>
-              <div
-                v-if="!invitations.length"
-                class="navbar-mail-empty"
-              >
+              <div class="navbar-mail-header">Invitations</div>
+              <div v-if="!invitations.length" class="navbar-mail-empty">
                 No invitations yet.
               </div>
-              <div
-                v-else
-                class="navbar-mail-list"
-              >
+              <div v-else class="navbar-mail-list">
                 <div
                   v-for="invite in invitations"
                   :key="invite.id"
@@ -562,11 +599,11 @@ onUnmounted(() => {
                       ]"
                     >
                       {{
-                        invite.status === 'pending'
-                          ? 'Pending'
-                          : invite.status === 'accepted'
-                            ? 'Accepted'
-                            : 'Error'
+                        invite.status === "pending"
+                          ? "Pending"
+                          : invite.status === "accepted"
+                          ? "Accepted"
+                          : "Error"
                       }}
                     </span>
                   </div>
@@ -607,21 +644,44 @@ onUnmounted(() => {
             </button>
             <div v-if="showUserMenu" class="user-menu-dropdown" @click.stop>
               <button class="menu-item" @click="showUserMenu = false">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
                   <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
                   <circle cx="12" cy="7" r="4"></circle>
                 </svg>
                 View Profile
               </button>
               <button class="menu-item" @click="showUserMenu = false">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
                   <circle cx="12" cy="12" r="3"></circle>
-                  <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path>
+                  <path
+                    d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"
+                  ></path>
                 </svg>
                 Settings
               </button>
               <button class="menu-item menu-item-danger" @click="handleLogout">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
                   <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
                   <polyline points="16 17 21 12 16 7"></polyline>
                   <line x1="21" y1="12" x2="9" y2="12"></line>
@@ -647,11 +707,19 @@ onUnmounted(() => {
           <div class="occasions-header-content">
             <h1 class="occasions-title">All Occasions</h1>
             <p class="occasions-subtitle">
-              {{ filteredOccasions.length }} {{ filteredOccasions.length === 1 ? 'occasion' : 'occasions' }}
+              {{ filteredOccasions.length }}
+              {{ filteredOccasions.length === 1 ? "occasion" : "occasions" }}
             </p>
           </div>
           <button @click="openCreateModal" class="create-occasion-button">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
@@ -663,7 +731,15 @@ onUnmounted(() => {
         <div class="occasions-controls">
           <!-- Search -->
           <div class="search-wrapper">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="search-icon">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              class="search-icon"
+            >
               <circle cx="11" cy="11" r="8"></circle>
               <path d="m21 21-4.35-4.35"></path>
             </svg>
@@ -698,7 +774,14 @@ onUnmounted(() => {
               :class="['view-mode-button', { active: viewMode === 'list' }]"
               aria-label="List view"
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
                 <line x1="8" y1="6" x2="21" y2="6"></line>
                 <line x1="8" y1="12" x2="21" y2="12"></line>
                 <line x1="8" y1="18" x2="21" y2="18"></line>
@@ -712,7 +795,14 @@ onUnmounted(() => {
               :class="['view-mode-button', { active: viewMode === 'grouped' }]"
               aria-label="Grouped view"
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
                 <rect x="3" y="3" width="7" height="7"></rect>
                 <rect x="14" y="3" width="7" height="7"></rect>
                 <rect x="14" y="14" width="7" height="7"></rect>
@@ -724,16 +814,35 @@ onUnmounted(() => {
 
         <!-- Occasions List -->
         <div v-if="viewMode === 'list'" class="occasions-list-view">
-          <div v-if="filteredOccasions.length === 0" class="empty-state-occasions">
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="empty-icon">
+          <div
+            v-if="filteredOccasions.length === 0"
+            class="empty-state-occasions"
+          >
+            <svg
+              width="64"
+              height="64"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              class="empty-icon"
+            >
               <circle cx="12" cy="12" r="10"></circle>
               <path d="M12 6v6l4 2"></path>
             </svg>
             <p class="empty-title">No occasions found</p>
             <p class="empty-text">
-              {{ searchQuery || selectedPersonFilter ? 'Try adjusting your filters' : 'Create your first occasion to get started!' }}
+              {{
+                searchQuery || selectedPersonFilter
+                  ? "Try adjusting your filters"
+                  : "Create your first occasion to get started!"
+              }}
             </p>
-            <button v-if="!searchQuery && !selectedPersonFilter" @click="openCreateModal" class="empty-state-button">
+            <button
+              v-if="!searchQuery && !selectedPersonFilter"
+              @click="openCreateModal"
+              class="empty-state-button"
+            >
               Create Occasion
             </button>
           </div>
@@ -755,9 +864,20 @@ onUnmounted(() => {
                       class="action-button edit-button"
                       aria-label="Edit occasion"
                     >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                      >
+                        <path
+                          d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+                        ></path>
+                        <path
+                          d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+                        ></path>
                       </svg>
                     </button>
                     <button
@@ -765,30 +885,55 @@ onUnmounted(() => {
                       class="action-button delete-button"
                       aria-label="Delete occasion"
                     >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                      >
                         <polyline points="3 6 5 6 21 6"></polyline>
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        <path
+                          d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                        ></path>
                       </svg>
                     </button>
                   </div>
                 </div>
-                <div class="occasion-card-date-badge" :class="`badge-${getDateStatus(occasion.date)}`">
-                  <span class="badge-time">{{ getTimeUntilEvent(occasion.date) }}</span>
-                  <span class="badge-date">{{ formatDate(occasion.date) }}</span>
+                <div
+                  class="occasion-card-date-badge"
+                  :class="`badge-${getDateStatus(occasion.date)}`"
+                >
+                  <span class="badge-time">{{
+                    getTimeUntilEvent(occasion.date)
+                  }}</span>
+                  <span class="badge-date">{{
+                    formatDate(occasion.date)
+                  }}</span>
                 </div>
               </div>
 
               <div class="occasion-card-body">
                 <div class="occasion-card-person">
                   <div class="person-avatar">
-                    {{ occasion.relationshipName?.charAt(0).toUpperCase() || '?' }}
+                    {{
+                      occasion.relationshipName?.charAt(0).toUpperCase() || "?"
+                    }}
                   </div>
                   <div class="person-info">
-                    <span class="person-name">{{ occasion.relationshipName || 'Unknown' }}</span>
-                    <span class="person-type">{{ occasion.relationshipType || '' }}</span>
+                    <span class="person-name">{{
+                      occasion.relationshipName || "Unknown"
+                    }}</span>
+                    <span class="person-type">{{
+                      occasion.relationshipType || ""
+                    }}</span>
                   </div>
                 </div>
-                <p v-if="occasion.description" class="occasion-card-description">
+                <p
+                  v-if="occasion.description"
+                  class="occasion-card-description"
+                >
                   {{ occasion.description }}
                 </p>
               </div>
@@ -798,16 +943,35 @@ onUnmounted(() => {
 
         <!-- Grouped View -->
         <div v-else class="occasions-grouped-view">
-          <div v-if="Object.keys(occasionsByPerson).length === 0" class="empty-state-occasions">
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="empty-icon">
+          <div
+            v-if="Object.keys(occasionsByPerson).length === 0"
+            class="empty-state-occasions"
+          >
+            <svg
+              width="64"
+              height="64"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              class="empty-icon"
+            >
               <circle cx="12" cy="12" r="10"></circle>
               <path d="M12 6v6l4 2"></path>
             </svg>
             <p class="empty-title">No occasions found</p>
             <p class="empty-text">
-              {{ searchQuery || selectedPersonFilter ? 'Try adjusting your filters' : 'Create your first occasion to get started!' }}
+              {{
+                searchQuery || selectedPersonFilter
+                  ? "Try adjusting your filters"
+                  : "Create your first occasion to get started!"
+              }}
             </p>
-            <button v-if="!searchQuery && !selectedPersonFilter" @click="openCreateModal" class="empty-state-button">
+            <button
+              v-if="!searchQuery && !selectedPersonFilter"
+              @click="openCreateModal"
+              class="empty-state-button"
+            >
               Create Occasion
             </button>
           </div>
@@ -824,7 +988,12 @@ onUnmounted(() => {
                 </div>
                 <div class="person-group-info">
                   <h2 class="person-group-name">{{ personName }}</h2>
-                  <span class="person-group-count">{{ personOccasions.length }} {{ personOccasions.length === 1 ? 'occasion' : 'occasions' }}</span>
+                  <span class="person-group-count"
+                    >{{ personOccasions.length }}
+                    {{
+                      personOccasions.length === 1 ? "occasion" : "occasions"
+                    }}</span
+                  >
                 </div>
               </div>
               <div class="person-group-occasions">
@@ -843,9 +1012,20 @@ onUnmounted(() => {
                         class="action-button-small edit-button"
                         aria-label="Edit"
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                        >
+                          <path
+                            d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+                          ></path>
+                          <path
+                            d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+                          ></path>
                         </svg>
                       </button>
                       <button
@@ -853,18 +1033,35 @@ onUnmounted(() => {
                         class="action-button-small delete-button"
                         aria-label="Delete"
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                        >
                           <polyline points="3 6 5 6 21 6"></polyline>
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                          <path
+                            d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                          ></path>
                         </svg>
                       </button>
                     </div>
                   </div>
-                  <div class="occasion-compact-date" :class="`badge-${getDateStatus(occasion.date)}`">
+                  <div
+                    class="occasion-compact-date"
+                    :class="`badge-${getDateStatus(occasion.date)}`"
+                  >
                     <span>{{ formatDate(occasion.date) }}</span>
-                    <span class="occasion-compact-time">{{ getTimeUntilEvent(occasion.date) }}</span>
+                    <span class="occasion-compact-time">{{
+                      getTimeUntilEvent(occasion.date)
+                    }}</span>
                   </div>
-                  <p v-if="occasion.description" class="occasion-compact-description">
+                  <p
+                    v-if="occasion.description"
+                    class="occasion-compact-description"
+                  >
                     {{ occasion.description }}
                   </p>
                 </div>
@@ -876,12 +1073,27 @@ onUnmounted(() => {
     </main>
 
     <!-- Create Modal -->
-    <div v-if="showCreateModal" class="modal-overlay" @click.self="closeCreateModal">
+    <div
+      v-if="showCreateModal"
+      class="modal-overlay"
+      @click.self="closeCreateModal"
+    >
       <div class="modal-content">
         <div class="modal-header">
           <h2 class="modal-title">Create New Occasion</h2>
-          <button @click="closeCreateModal" class="modal-close" aria-label="Close">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <button
+            @click="closeCreateModal"
+            class="modal-close"
+            aria-label="Close"
+          >
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
@@ -933,21 +1145,42 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="modal-footer">
-          <button @click="closeCreateModal" class="button-secondary">Cancel</button>
-          <button @click="handleCreateOccasion" class="button-primary" :disabled="isSubmitting">
-            {{ isSubmitting ? 'Creating...' : 'Create Occasion' }}
+          <button @click="closeCreateModal" class="button-secondary">
+            Cancel
+          </button>
+          <button
+            @click="handleCreateOccasion"
+            class="button-primary"
+            :disabled="isSubmitting"
+          >
+            {{ isSubmitting ? "Creating..." : "Create Occasion" }}
           </button>
         </div>
       </div>
     </div>
 
     <!-- Edit Modal -->
-    <div v-if="showEditModal" class="modal-overlay" @click.self="closeEditModal">
+    <div
+      v-if="showEditModal"
+      class="modal-overlay"
+      @click.self="closeEditModal"
+    >
       <div class="modal-content">
         <div class="modal-header">
           <h2 class="modal-title">Edit Occasion</h2>
-          <button @click="closeEditModal" class="modal-close" aria-label="Close">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <button
+            @click="closeEditModal"
+            class="modal-close"
+            aria-label="Close"
+          >
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
@@ -999,21 +1232,42 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="modal-footer">
-          <button @click="closeEditModal" class="button-secondary">Cancel</button>
-          <button @click="handleUpdateOccasion" class="button-primary" :disabled="isSubmitting">
-            {{ isSubmitting ? 'Updating...' : 'Update Occasion' }}
+          <button @click="closeEditModal" class="button-secondary">
+            Cancel
+          </button>
+          <button
+            @click="handleUpdateOccasion"
+            class="button-primary"
+            :disabled="isSubmitting"
+          >
+            {{ isSubmitting ? "Updating..." : "Update Occasion" }}
           </button>
         </div>
       </div>
     </div>
 
     <!-- Delete Confirmation Modal -->
-    <div v-if="showDeleteModal" class="modal-overlay" @click.self="closeDeleteModal">
+    <div
+      v-if="showDeleteModal"
+      class="modal-overlay"
+      @click.self="closeDeleteModal"
+    >
       <div class="modal-content delete-modal-content">
         <div class="modal-header delete-modal-header-simple">
           <h2 class="modal-title">Delete Occasion</h2>
-          <button @click="closeDeleteModal" class="modal-close" aria-label="Close">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <button
+            @click="closeDeleteModal"
+            class="modal-close"
+            aria-label="Close"
+          >
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
@@ -1021,16 +1275,29 @@ onUnmounted(() => {
         </div>
         <div class="modal-body delete-modal-body">
           <div class="delete-modal-icon">
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg
+              width="64"
+              height="64"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
               <polyline points="3 6 5 6 21 6"></polyline>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              <path
+                d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+              ></path>
               <line x1="10" y1="11" x2="10" y2="17"></line>
               <line x1="14" y1="11" x2="14" y2="17"></line>
             </svg>
           </div>
           <h3 class="delete-modal-title">Are you sure?</h3>
           <p class="delete-modal-message">
-            This will permanently delete <strong>"{{ deletingOccasion?.name }}"</strong>. This action cannot be undone.
+            This will permanently delete
+            <strong>"{{ deletingOccasion?.name }}"</strong>. This action cannot
+            be undone.
           </p>
         </div>
         <div class="modal-footer delete-modal-footer">
@@ -1042,4 +1309,3 @@ onUnmounted(() => {
     </div>
   </div>
 </template>
-

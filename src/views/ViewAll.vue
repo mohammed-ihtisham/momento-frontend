@@ -1,358 +1,397 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { sessionManager, relationshipApi, profileApi, collaboratorsApi } from '../api'
-import { nameToSlug } from '../utils'
+import { ref, computed, onMounted, onUnmounted } from "vue";
+import { useRouter } from "vue-router";
+import {
+  sessionManager,
+  relationshipApi,
+  profileApi,
+  collaboratorsApi,
+} from "../api";
+import { nameToSlug } from "../utils";
 
-const router = useRouter()
+const router = useRouter();
 
 // App state
-const currentUser = ref<any>(null)
-const userProfile = ref<{ name: string; email: string } | null>(null)
-const allRelationships = ref<any[]>([])
-const pinnedRelationships = ref<any[]>([])
-const isLoading = ref(true)
-const showUserMenu = ref(false)
+const currentUser = ref<any>(null);
+const userProfile = ref<{
+  name: string;
+  email: string;
+  username?: string;
+} | null>(null);
+const allRelationships = ref<any[]>([]);
+const pinnedRelationships = ref<any[]>([]);
+const isLoading = ref(true);
+const showUserMenu = ref(false);
 
 // Invitations dropdown (inbox)
-const showInvitesMenu = ref(false)
+const showInvitesMenu = ref(false);
 const invitations = ref<
   Array<{
-    id: string
-    invitePayload: any
-    toUsername: string
-    createdAt: string
-    status: 'pending' | 'accepted' | 'error'
-    errorMessage?: string
+    id: string;
+    invitePayload: any;
+    toUsername: string;
+    createdAt: string;
+    status: "pending" | "accepted" | "error";
+    errorMessage?: string;
   }>
->([])
+>([]);
 
 const pendingInvitationsCount = computed(
-  () => invitations.value.filter((i) => i.status === 'pending').length
-)
+  () => invitations.value.filter((i) => i.status === "pending").length
+);
 
 // Drag and drop state
-const draggedItem = ref<{ item: any; source: 'pinned' | 'all'; index: number } | null>(null)
-const dragOverIndex = ref<number | null>(null)
-const dragOverContainer = ref<'pinned' | 'all' | null>(null)
-const isDragging = ref(false)
-const justDropped = ref(false)
+const draggedItem = ref<{
+  item: any;
+  source: "pinned" | "all";
+  index: number;
+} | null>(null);
+const dragOverIndex = ref<number | null>(null);
+const dragOverContainer = ref<"pinned" | "all" | null>(null);
+const isDragging = ref(false);
+const justDropped = ref(false);
 
-const MAX_PINNED = 7
+const MAX_PINNED = 7;
 
 // Get user's first name from profile
 const getUserFirstName = computed(() => {
   if (userProfile.value?.name) {
-    const firstName = userProfile.value.name.split(' ')[0]
-    return firstName || userProfile.value.name || 'User'
+    const firstName = userProfile.value.name.split(" ")[0];
+    return (
+      firstName ||
+      userProfile.value.name ||
+      userProfile.value.username ||
+      "User"
+    );
   }
-  return 'User'
-})
+  return userProfile.value?.username || currentUser.value?.username || "User";
+});
 
 // Load incoming invitations for the current user from backend
 const loadInvitations = async () => {
   try {
-    const backendInvites = await collaboratorsApi.getIncomingInvites()
-    invitations.value = (backendInvites || [])
-      .filter((inv: any) => inv.status === 'pending')
-      .map((inv: any) => {
-        const rawInvite = inv.invite
-        const sender = inv.sender
-        const username =
-          typeof sender === 'string'
-            ? sender
-            : sender?.username || sender?.name || 'someone'
-
-        return {
-          id: String(rawInvite?.id ?? rawInvite ?? inv.id ?? ''),
-          invitePayload: rawInvite,
-          toUsername: username,
-          createdAt: inv.createdAt,
-          status: 'pending' as const,
-        }
-      })
+    // const backendInvites = await collaboratorsApi.getIncomingInvites()
+    // invitations.value = (backendInvites || [])
+    //   .filter((inv: any) => inv.status === 'pending')
+    //   .map((inv: any) => {
+    //     const rawInvite = inv.invite
+    //     const sender = inv.sender
+    //     const username =
+    //       typeof sender === 'string'
+    //         ? sender
+    //         : sender?.username || sender?.name || 'someone'
+    //     return {
+    //       id: String(rawInvite?.id ?? rawInvite ?? inv.id ?? ''),
+    //       invitePayload: rawInvite,
+    //       toUsername: username,
+    //       createdAt: inv.createdAt,
+    //       status: 'pending' as const,
+    //     }
+    //   })
   } catch (error) {
-    console.error('Failed to load collaborator invitations:', error)
-    invitations.value = []
+    console.error("Failed to load collaborator invitations:", error);
+    invitations.value = [];
   }
-}
+};
 
-const handleAcceptInvite = async (invite: (typeof invitations.value)[number]) => {
+const handleAcceptInvite = async (
+  invite: (typeof invitations.value)[number]
+) => {
   try {
-    await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id)
-    invitations.value = invitations.value.filter((i) => i.id !== invite.id)
+    await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id);
+    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
   } catch (error: any) {
-    console.error('Error accepting invitation:', error)
+    console.error("Error accepting invitation:", error);
     alert(
       error instanceof Error
         ? error.message
-        : 'Failed to accept invitation. Please try again.'
-    )
+        : "Failed to accept invitation. Please try again."
+    );
   }
-}
+};
 
-const handleDeclineInvite = async (invite: (typeof invitations.value)[number]) => {
+const handleDeclineInvite = async (
+  invite: (typeof invitations.value)[number]
+) => {
   try {
-    await collaboratorsApi.declineInvite(invite.id)
-    invitations.value = invitations.value.filter((i) => i.id !== invite.id)
+    await collaboratorsApi.declineInvite(invite.id);
+    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
   } catch (error: any) {
-    console.error('Error declining invitation:', error)
+    console.error("Error declining invitation:", error);
     alert(
       error instanceof Error
         ? error.message
-        : 'Failed to decline invitation. Please try again.'
-    )
+        : "Failed to decline invitation. Please try again."
+    );
   }
-}
+};
 
 // Get all relationships that are not pinned
 const unpinnedRelationships = computed(() => {
-  const pinnedIds = new Set(pinnedRelationships.value.map(r => r.id))
-  return allRelationships.value.filter(r => !pinnedIds.has(r.id))
-})
+  const pinnedIds = new Set(pinnedRelationships.value.map((r) => r.id));
+  return allRelationships.value.filter((r) => !pinnedIds.has(r.id));
+});
 
 // Check if can add to pinned
 const canAddToPinned = computed(() => {
-  return pinnedRelationships.value.length < MAX_PINNED
-})
+  return pinnedRelationships.value.length < MAX_PINNED;
+});
 
 // Load relationships
 const loadRelationships = async () => {
-  if (!currentUser.value) return
+  if (!currentUser.value) return;
 
   try {
-    const relationshipsData = await relationshipApi.getRelationships(currentUser.value)
+    const relationshipsData = await relationshipApi.getRelationships(
+      currentUser.value
+    );
     const mapped = relationshipsData.map((r) => ({
       id: r.relationship?.id || r.name,
       name: r.name,
       relationshipType: r.relationshipType,
       relationship: r.relationship,
       avatar: null,
-    }))
-    
-    allRelationships.value = mapped
-    
+    }));
+
+    allRelationships.value = mapped;
+
     // Load pinned relationships from localStorage
-    loadPinnedRelationships(mapped)
-    
-    isLoading.value = false
+    loadPinnedRelationships(mapped);
+
+    isLoading.value = false;
   } catch (error) {
-    console.error('Error loading relationships:', error)
-    allRelationships.value = []
-    isLoading.value = false
+    console.error("Error loading relationships:", error);
+    allRelationships.value = [];
+    isLoading.value = false;
   }
-}
+};
 
 // Load pinned relationships from localStorage
 const loadPinnedRelationships = (relationships: any[]) => {
-  if (!currentUser.value) return
-  
-  const pinnedKey = `momento_pinned_${currentUser.value.id || currentUser.value.username}`
-  const savedPinned = localStorage.getItem(pinnedKey)
-  
+  if (!currentUser.value) return;
+
+  const pinnedKey = `momento_pinned_${
+    currentUser.value.id || currentUser.value.username
+  }`;
+  const savedPinned = localStorage.getItem(pinnedKey);
+
   if (!savedPinned) {
-    pinnedRelationships.value = []
-    return
+    pinnedRelationships.value = [];
+    return;
   }
-  
+
   try {
-    const pinnedIds = JSON.parse(savedPinned) as string[]
-    const relationshipMap = new Map(relationships.map(r => [r.id, r]))
+    const pinnedIds = JSON.parse(savedPinned) as string[];
+    const relationshipMap = new Map(relationships.map((r) => [r.id, r]));
     pinnedRelationships.value = pinnedIds
-      .map(id => relationshipMap.get(id))
+      .map((id) => relationshipMap.get(id))
       .filter(Boolean)
-      .slice(0, MAX_PINNED) // Ensure max 7
+      .slice(0, MAX_PINNED); // Ensure max 7
   } catch (error) {
-    console.error('Error loading pinned relationships:', error)
-    pinnedRelationships.value = []
+    console.error("Error loading pinned relationships:", error);
+    pinnedRelationships.value = [];
   }
-}
+};
 
 // Save pinned relationships to localStorage
 const savePinnedRelationships = () => {
-  if (!currentUser.value) return
-  
-  const pinnedKey = `momento_pinned_${currentUser.value.id || currentUser.value.username}`
-  const pinnedIds = pinnedRelationships.value.map(r => r.id)
-  localStorage.setItem(pinnedKey, JSON.stringify(pinnedIds))
-}
+  if (!currentUser.value) return;
+
+  const pinnedKey = `momento_pinned_${
+    currentUser.value.id || currentUser.value.username
+  }`;
+  const pinnedIds = pinnedRelationships.value.map((r) => r.id);
+  localStorage.setItem(pinnedKey, JSON.stringify(pinnedIds));
+};
 
 // Load user profile
 const loadUserProfile = async () => {
-  if (!currentUser.value) return
-  
+  if (!currentUser.value) return;
+
   try {
-    const profile = await profileApi.getProfile(currentUser.value)
+    const profile = await profileApi.getProfile(currentUser.value);
     if (profile && profile.name) {
-      userProfile.value = profile
+      userProfile.value = profile;
     }
   } catch (error) {
-    console.error('Error loading profile:', error)
+    console.error("Error loading profile:", error);
   }
-}
+};
 
 // Handle back navigation (return to previous page when possible)
 const handleBack = () => {
   if (window.history.length > 1) {
-    router.back()
+    router.back();
   } else {
-    router.push('/')
+    router.push("/");
   }
-}
+};
 
 // Logout function
 const handleLogout = async () => {
-  sessionManager.clearUser()
-  currentUser.value = null
-  userProfile.value = null
-  showUserMenu.value = false
-  router.replace('/')
-}
-
+  sessionManager.clearUser();
+  currentUser.value = null;
+  userProfile.value = null;
+  showUserMenu.value = false;
+  router.replace("/");
+};
 
 // Drag and drop handlers
-const handleDragStart = (item: any, source: 'pinned' | 'all', index: number, event: DragEvent) => {
-  draggedItem.value = { item, source, index }
-  isDragging.value = true
+const handleDragStart = (
+  item: any,
+  source: "pinned" | "all",
+  index: number,
+  event: DragEvent
+) => {
+  draggedItem.value = { item, source, index };
+  isDragging.value = true;
   if (event.dataTransfer) {
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', '')
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", "");
   }
   if (event.target) {
-    (event.target as HTMLElement).style.opacity = '0.5'
+    (event.target as HTMLElement).style.opacity = "0.5";
   }
-}
+};
 
 const handleDragEnd = (event: DragEvent) => {
   if (event.target) {
-    (event.target as HTMLElement).style.opacity = '1'
+    (event.target as HTMLElement).style.opacity = "1";
   }
   setTimeout(() => {
-    draggedItem.value = null
-    dragOverIndex.value = null
-    dragOverContainer.value = null
-    isDragging.value = false
-  }, 0)
-}
+    draggedItem.value = null;
+    dragOverIndex.value = null;
+    dragOverContainer.value = null;
+    isDragging.value = false;
+  }, 0);
+};
 
-const handleDragOver = (container: 'pinned' | 'all', index: number, event: DragEvent) => {
-  event.preventDefault()
+const handleDragOver = (
+  container: "pinned" | "all",
+  index: number,
+  event: DragEvent
+) => {
+  event.preventDefault();
   if (event.dataTransfer) {
-    event.dataTransfer.dropEffect = 'move'
+    event.dataTransfer.dropEffect = "move";
   }
-  dragOverContainer.value = container
-  dragOverIndex.value = index
-}
+  dragOverContainer.value = container;
+  dragOverIndex.value = index;
+};
 
 const handleDragLeave = () => {
-  dragOverIndex.value = null
-  dragOverContainer.value = null
-}
+  dragOverIndex.value = null;
+  dragOverContainer.value = null;
+};
 
-const handleDrop = (targetContainer: 'pinned' | 'all', targetIndex: number, event: DragEvent) => {
-  event.preventDefault()
-  event.stopPropagation()
-  
+const handleDrop = (
+  targetContainer: "pinned" | "all",
+  targetIndex: number,
+  event: DragEvent
+) => {
+  event.preventDefault();
+  event.stopPropagation();
+
   if (!draggedItem.value) {
-    dragOverIndex.value = null
-    dragOverContainer.value = null
-    isDragging.value = false
-    return
+    dragOverIndex.value = null;
+    dragOverContainer.value = null;
+    isDragging.value = false;
+    return;
   }
-  
-  const { item, source, index: sourceIndex } = draggedItem.value
-  
+
+  const { item, source, index: sourceIndex } = draggedItem.value;
+
   // If dropping in the same position, do nothing
   if (source === targetContainer && sourceIndex === targetIndex) {
-    dragOverIndex.value = null
-    dragOverContainer.value = null
-    isDragging.value = false
-    return
+    dragOverIndex.value = null;
+    dragOverContainer.value = null;
+    isDragging.value = false;
+    return;
   }
-  
+
   // Handle moving within pinned
-  if (source === 'pinned' && targetContainer === 'pinned') {
-    const newPinned = [...pinnedRelationships.value]
-    newPinned.splice(sourceIndex, 1)
-    newPinned.splice(targetIndex, 0, item)
-    pinnedRelationships.value = newPinned
-    savePinnedRelationships()
+  if (source === "pinned" && targetContainer === "pinned") {
+    const newPinned = [...pinnedRelationships.value];
+    newPinned.splice(sourceIndex, 1);
+    newPinned.splice(targetIndex, 0, item);
+    pinnedRelationships.value = newPinned;
+    savePinnedRelationships();
   }
   // Handle moving within all relationships
-  else if (source === 'all' && targetContainer === 'all') {
-    const newAll = [...unpinnedRelationships.value]
-    newAll.splice(sourceIndex, 1)
-    newAll.splice(targetIndex, 0, item)
+  else if (source === "all" && targetContainer === "all") {
+    const newAll = [...unpinnedRelationships.value];
+    newAll.splice(sourceIndex, 1);
+    newAll.splice(targetIndex, 0, item);
     // Update allRelationships to reflect new order
-    allRelationships.value = [...pinnedRelationships.value, ...newAll]
+    allRelationships.value = [...pinnedRelationships.value, ...newAll];
   }
   // Handle moving from pinned to all (drop at end of all relationships)
-  else if (source === 'pinned' && targetContainer === 'all') {
-    const newPinned = [...pinnedRelationships.value]
-    newPinned.splice(sourceIndex, 1)
-    pinnedRelationships.value = newPinned
-    savePinnedRelationships()
+  else if (source === "pinned" && targetContainer === "all") {
+    const newPinned = [...pinnedRelationships.value];
+    newPinned.splice(sourceIndex, 1);
+    pinnedRelationships.value = newPinned;
+    savePinnedRelationships();
     // Item is automatically removed from pinned and will appear in all relationships
   }
   // Handle moving from all to pinned
-  else if (source === 'all' && targetContainer === 'pinned') {
+  else if (source === "all" && targetContainer === "pinned") {
     if (canAddToPinned.value) {
-      const newPinned = [...pinnedRelationships.value]
+      const newPinned = [...pinnedRelationships.value];
       // Clamp targetIndex to valid range
-      const clampedIndex = Math.min(targetIndex, newPinned.length)
-      newPinned.splice(clampedIndex, 0, item)
-      pinnedRelationships.value = newPinned
-      savePinnedRelationships()
+      const clampedIndex = Math.min(targetIndex, newPinned.length);
+      newPinned.splice(clampedIndex, 0, item);
+      pinnedRelationships.value = newPinned;
+      savePinnedRelationships();
     }
   }
-  
-  justDropped.value = true
+
+  justDropped.value = true;
   setTimeout(() => {
-    justDropped.value = false
-  }, 100)
-  
-  draggedItem.value = null
-  dragOverIndex.value = null
-  dragOverContainer.value = null
-  isDragging.value = false
-}
+    justDropped.value = false;
+  }, 100);
+
+  draggedItem.value = null;
+  dragOverIndex.value = null;
+  dragOverContainer.value = null;
+  isDragging.value = false;
+};
 
 const handleCardClick = (relationship: any) => {
   if (!isDragging.value && !justDropped.value) {
-    const slug = nameToSlug(relationship.name)
-    router.push(`/relationship/${slug}`)
+    const slug = nameToSlug(relationship.name);
+    router.push(`/relationship/${slug}`);
   }
-}
+};
 
 // Close user menu when clicking outside
 const handleClickOutside = (event: MouseEvent) => {
-  const target = event.target as HTMLElement
-  if (!target.closest('.user-menu-wrapper')) {
-    showUserMenu.value = false
+  const target = event.target as HTMLElement;
+  if (!target.closest(".user-menu-wrapper")) {
+    showUserMenu.value = false;
   }
-  if (!target.closest('.navbar-mail-wrapper')) {
-    showInvitesMenu.value = false
+  if (!target.closest(".navbar-mail-wrapper")) {
+    showInvitesMenu.value = false;
   }
-}
+};
 
 onMounted(async () => {
-  const savedUser = sessionManager.getUser()
+  const savedUser = sessionManager.getUser();
   if (!savedUser) {
-    router.push('/')
-    return
+    router.push("/");
+    return;
   }
-  
-  currentUser.value = savedUser
-  await loadUserProfile()
-  await loadRelationships()
-  await loadInvitations()
-  
-  document.addEventListener('click', handleClickOutside)
-})
+
+  currentUser.value = savedUser;
+  await loadUserProfile();
+  await loadRelationships();
+  await loadInvitations();
+
+  document.addEventListener("click", handleClickOutside);
+});
 
 onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside)
-})
+  document.removeEventListener("click", handleClickOutside);
+});
 </script>
 
 <template>
@@ -361,8 +400,19 @@ onUnmounted(() => {
     <header class="relationship-detail-header">
       <div class="relationship-detail-header-content">
         <div class="relationship-detail-logo">
-          <button @click="handleBack" class="back-button-inline" aria-label="Go back">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <button
+            @click="handleBack"
+            class="back-button-inline"
+            aria-label="Go back"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
               <polyline points="15 18 9 12 15 6"></polyline>
             </svg>
           </button>
@@ -377,7 +427,14 @@ onUnmounted(() => {
               :aria-expanded="showInvitesMenu"
               aria-label="Collaboration invitations"
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
                 <rect x="3" y="5" width="18" height="14" rx="2" ry="2" />
                 <polyline points="3 7 12 13 21 7" />
               </svg>
@@ -393,19 +450,11 @@ onUnmounted(() => {
               class="navbar-mail-dropdown"
               @click.stop
             >
-              <div class="navbar-mail-header">
-                Invitations
-              </div>
-              <div
-                v-if="!invitations.length"
-                class="navbar-mail-empty"
-              >
+              <div class="navbar-mail-header">Invitations</div>
+              <div v-if="!invitations.length" class="navbar-mail-empty">
                 No invitations yet.
               </div>
-              <div
-                v-else
-                class="navbar-mail-list"
-              >
+              <div v-else class="navbar-mail-list">
                 <div
                   v-for="invite in invitations"
                   :key="invite.id"
@@ -424,11 +473,11 @@ onUnmounted(() => {
                       ]"
                     >
                       {{
-                        invite.status === 'pending'
-                          ? 'Pending'
-                          : invite.status === 'accepted'
-                            ? 'Accepted'
-                            : 'Error'
+                        invite.status === "pending"
+                          ? "Pending"
+                          : invite.status === "accepted"
+                          ? "Accepted"
+                          : "Error"
                       }}
                     </span>
                   </div>
@@ -469,21 +518,44 @@ onUnmounted(() => {
             </button>
             <div v-if="showUserMenu" class="user-menu-dropdown" @click.stop>
               <button class="menu-item" @click="showUserMenu = false">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
                   <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
                   <circle cx="12" cy="7" r="4"></circle>
                 </svg>
                 View Profile
               </button>
               <button class="menu-item" @click="showUserMenu = false">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
                   <circle cx="12" cy="12" r="3"></circle>
-                  <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path>
+                  <path
+                    d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"
+                  ></path>
                 </svg>
                 Settings
               </button>
               <button class="menu-item menu-item-danger" @click="handleLogout">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
                   <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
                   <polyline points="16 17 21 12 16 7"></polyline>
                   <line x1="21" y1="12" x2="9" y2="12"></line>
@@ -512,7 +584,9 @@ onUnmounted(() => {
               v-for="(relationship, index) in pinnedRelationships"
               :key="relationship.id"
               :draggable="true"
-              @dragstart="handleDragStart(relationship, 'pinned', index, $event)"
+              @dragstart="
+                handleDragStart(relationship, 'pinned', index, $event)
+              "
               @dragend="handleDragEnd($event)"
               @dragover="handleDragOver('pinned', index, $event)"
               @dragleave="handleDragLeave"
@@ -520,8 +594,16 @@ onUnmounted(() => {
               @click="handleCardClick(relationship)"
               class="relationship-card-view-all"
               :class="{
-                'dragging': draggedItem?.source === 'pinned' && draggedItem?.index === index,
-                'drag-over': dragOverContainer === 'pinned' && dragOverIndex === index && draggedItem?.source !== 'pinned' || (draggedItem?.source === 'pinned' && draggedItem?.index !== index && dragOverIndex === index)
+                dragging:
+                  draggedItem?.source === 'pinned' &&
+                  draggedItem?.index === index,
+                'drag-over':
+                  (dragOverContainer === 'pinned' &&
+                    dragOverIndex === index &&
+                    draggedItem?.source !== 'pinned') ||
+                  (draggedItem?.source === 'pinned' &&
+                    draggedItem?.index !== index &&
+                    dragOverIndex === index),
               }"
             >
               <div class="relationship-avatar">
@@ -545,7 +627,9 @@ onUnmounted(() => {
                   stroke-width="2"
                   class="relationship-type-icon"
                 >
-                  <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                  <path
+                    d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                  ></path>
                 </svg>
                 <svg
                   v-else-if="relationship.relationshipType === 'Friend'"
@@ -572,7 +656,9 @@ onUnmounted(() => {
                   stroke-width="2"
                   class="relationship-type-icon"
                 >
-                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                  <path
+                    d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"
+                  ></path>
                 </svg>
                 <svg
                   v-else-if="relationship.relationshipType === 'Colleague'"
@@ -605,22 +691,33 @@ onUnmounted(() => {
                 </svg>
               </div>
               <div class="relationship-name">{{ relationship.name }}</div>
-              <div class="relationship-type">{{ relationship.relationshipType }}</div>
+              <div class="relationship-type">
+                {{ relationship.relationshipType }}
+              </div>
             </div>
-            
+
             <!-- Static Info Card (always last) -->
-            <div 
-              class="relationship-card-view-all info-card" 
-              :class="{ 
-                'hidden': pinnedRelationships.length >= MAX_PINNED,
-                'drag-over': canAddToPinned && draggedItem && draggedItem.source === 'all'
+            <div
+              class="relationship-card-view-all info-card"
+              :class="{
+                hidden: pinnedRelationships.length >= MAX_PINNED,
+                'drag-over':
+                  canAddToPinned && draggedItem && draggedItem.source === 'all',
               }"
-              @dragover.prevent="handleDragOver('pinned', pinnedRelationships.length, $event)"
-              @drop.prevent="handleDrop('pinned', pinnedRelationships.length, $event)"
+              @dragover.prevent="
+                handleDragOver('pinned', pinnedRelationships.length, $event)
+              "
+              @drop.prevent="
+                handleDrop('pinned', pinnedRelationships.length, $event)
+              "
             >
               <div class="info-icon-wrapper-large">
                 <svg
-                  v-if="canAddToPinned && draggedItem && draggedItem.source === 'all'"
+                  v-if="
+                    canAddToPinned &&
+                    draggedItem &&
+                    draggedItem.source === 'all'
+                  "
                   width="32"
                   height="32"
                   viewBox="0 0 24 24"
@@ -642,14 +739,24 @@ onUnmounted(() => {
                   stroke-width="2"
                   class="info-icon"
                 >
-                  <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                  <path
+                    d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                  ></path>
                 </svg>
               </div>
               <div class="info-title">
-                {{ canAddToPinned && draggedItem && draggedItem.source === 'all' ? 'Drop here to pin' : 'Drag to Organize' }}
+                {{
+                  canAddToPinned && draggedItem && draggedItem.source === "all"
+                    ? "Drop here to pin"
+                    : "Drag to Organize"
+                }}
               </div>
               <div class="info-text">
-                {{ canAddToPinned && draggedItem && draggedItem.source === 'all' ? 'Release to add this relationship to pinned' : 'Drag cards to reorder pinned relationships.' }}
+                {{
+                  canAddToPinned && draggedItem && draggedItem.source === "all"
+                    ? "Release to add this relationship to pinned"
+                    : "Drag cards to reorder pinned relationships."
+                }}
               </div>
             </div>
           </div>
@@ -671,8 +778,15 @@ onUnmounted(() => {
               @click="handleCardClick(relationship)"
               class="relationship-card-view-all"
               :class="{
-                'dragging': draggedItem?.source === 'all' && draggedItem?.index === index,
-                'drag-over': dragOverContainer === 'all' && dragOverIndex === index && draggedItem?.source !== 'all' || (draggedItem?.source === 'all' && draggedItem?.index !== index && dragOverIndex === index)
+                dragging:
+                  draggedItem?.source === 'all' && draggedItem?.index === index,
+                'drag-over':
+                  (dragOverContainer === 'all' &&
+                    dragOverIndex === index &&
+                    draggedItem?.source !== 'all') ||
+                  (draggedItem?.source === 'all' &&
+                    draggedItem?.index !== index &&
+                    dragOverIndex === index),
               }"
             >
               <div class="relationship-avatar">
@@ -696,7 +810,9 @@ onUnmounted(() => {
                   stroke-width="2"
                   class="relationship-type-icon"
                 >
-                  <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                  <path
+                    d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                  ></path>
                 </svg>
                 <svg
                   v-else-if="relationship.relationshipType === 'Friend'"
@@ -723,7 +839,9 @@ onUnmounted(() => {
                   stroke-width="2"
                   class="relationship-type-icon"
                 >
-                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                  <path
+                    d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"
+                  ></path>
                 </svg>
                 <svg
                   v-else-if="relationship.relationshipType === 'Colleague'"
@@ -756,22 +874,42 @@ onUnmounted(() => {
                 </svg>
               </div>
               <div class="relationship-name">{{ relationship.name }}</div>
-              <div class="relationship-type">{{ relationship.relationshipType }}</div>
+              <div class="relationship-type">
+                {{ relationship.relationshipType }}
+              </div>
             </div>
-            <div v-if="unpinnedRelationships.length === 0" class="empty-state-view-all">
+            <div
+              v-if="unpinnedRelationships.length === 0"
+              class="empty-state-view-all"
+            >
               <p>No other relationships. All relationships are pinned!</p>
             </div>
-            
+
             <!-- Drop zone for empty space in all relationships -->
             <div
               v-if="draggedItem && draggedItem.source === 'pinned'"
               class="relationship-card-view-all drop-zone"
-              @dragover.prevent="handleDragOver('all', unpinnedRelationships.length, $event)"
-              @drop.prevent="handleDrop('all', unpinnedRelationships.length, $event)"
-              :class="{ 'drag-over': dragOverContainer === 'all' && dragOverIndex === unpinnedRelationships.length }"
+              @dragover.prevent="
+                handleDragOver('all', unpinnedRelationships.length, $event)
+              "
+              @drop.prevent="
+                handleDrop('all', unpinnedRelationships.length, $event)
+              "
+              :class="{
+                'drag-over':
+                  dragOverContainer === 'all' &&
+                  dragOverIndex === unpinnedRelationships.length,
+              }"
             >
               <div class="drop-zone-content">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
                   <line x1="12" y1="5" x2="12" y2="19"></line>
                   <line x1="5" y1="12" x2="19" y2="12"></line>
                 </svg>
@@ -784,4 +922,3 @@ onUnmounted(() => {
     </main>
   </div>
 </template>
-

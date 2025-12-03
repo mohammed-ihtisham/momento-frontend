@@ -16,7 +16,11 @@ const route = useRoute();
 
 // App state
 const currentUser = ref<any>(null);
-const userProfile = ref<{ name: string; email: string } | null>(null);
+const userProfile = ref<{
+  name: string;
+  email: string;
+  username?: string;
+} | null>(null);
 const relationship = ref<any>(null);
 const isLoading = ref(true);
 const relationshipName = ref("");
@@ -69,40 +73,46 @@ const photoFileInput = ref<HTMLInputElement | null>(null);
 const getUserFirstName = computed(() => {
   if (userProfile.value?.name) {
     const firstName = userProfile.value.name.split(" ")[0];
-    return firstName || userProfile.value.name || "User";
+    return (
+      firstName ||
+      userProfile.value.name ||
+      userProfile.value.username ||
+      "User"
+    );
   }
-  return "User";
+  return userProfile.value?.username || currentUser.value?.username || "User";
 });
 
 // Load incoming invitations for the current user from backend
 const loadInvitations = async () => {
   try {
-    const backendInvites = await collaboratorsApi.getIncomingInvites();
-    invitations.value = (backendInvites || [])
-      .filter((inv: any) => inv.status === "pending")
-      .map((inv: any) => {
-        const rawInvite = inv.invite;
-        const sender = inv.sender;
-        const username =
-          typeof sender === "string"
-            ? sender
-            : sender?.username || sender?.name || "someone";
-
-        return {
-          id: String(rawInvite?.id ?? rawInvite ?? inv.id ?? ""),
-          invitePayload: rawInvite,
-          toUsername: username,
-          createdAt: inv.createdAt,
-          status: "pending" as const,
-        };
-      });
+    // const backendInvites = await collaboratorsApi.getIncomingInvites();
+    // invitations.value = (backendInvites || [])
+    //   .filter((inv: any) => inv.status === "pending")
+    //   .map((inv: any) => {
+    //     const rawInvite = inv.invite;
+    //     const sender = inv.sender;
+    //     const username =
+    //       typeof sender === "string"
+    //         ? sender
+    //         : sender?.username || sender?.name || "someone";
+    //     return {
+    //       id: String(rawInvite?.id ?? rawInvite ?? inv.id ?? ""),
+    //       invitePayload: rawInvite,
+    //       toUsername: username,
+    //       createdAt: inv.createdAt,
+    //       status: "pending" as const,
+    //     };
+    //   });
   } catch (error) {
     console.error("Failed to load collaborator invitations:", error);
     invitations.value = [];
   }
 };
 
-const handleAcceptInvite = async (invite: (typeof invitations.value)[number]) => {
+const handleAcceptInvite = async (
+  invite: (typeof invitations.value)[number]
+) => {
   try {
     await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id);
     invitations.value = invitations.value.filter((i) => i.id !== invite.id);
@@ -116,7 +126,9 @@ const handleAcceptInvite = async (invite: (typeof invitations.value)[number]) =>
   }
 };
 
-const handleDeclineInvite = async (invite: (typeof invitations.value)[number]) => {
+const handleDeclineInvite = async (
+  invite: (typeof invitations.value)[number]
+) => {
   try {
     await collaboratorsApi.declineInvite(invite.id);
     invitations.value = invitations.value.filter((i) => i.id !== invite.id);
@@ -534,7 +546,14 @@ onUnmounted(() => {
               :aria-expanded="showInvitesMenu"
               aria-label="Collaboration invitations"
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
                 <rect x="3" y="5" width="18" height="14" rx="2" ry="2" />
                 <polyline points="3 7 12 13 21 7" />
               </svg>
@@ -550,19 +569,11 @@ onUnmounted(() => {
               class="navbar-mail-dropdown"
               @click.stop
             >
-              <div class="navbar-mail-header">
-                Invitations
-              </div>
-              <div
-                v-if="!invitations.length"
-                class="navbar-mail-empty"
-              >
+              <div class="navbar-mail-header">Invitations</div>
+              <div v-if="!invitations.length" class="navbar-mail-empty">
                 No invitations yet.
               </div>
-              <div
-                v-else
-                class="navbar-mail-list"
-              >
+              <div v-else class="navbar-mail-list">
                 <div
                   v-for="invite in invitations"
                   :key="invite.id"
@@ -581,11 +592,11 @@ onUnmounted(() => {
                       ]"
                     >
                       {{
-                        invite.status === 'pending'
-                          ? 'Pending'
-                          : invite.status === 'accepted'
-                            ? 'Accepted'
-                            : 'Error'
+                        invite.status === "pending"
+                          ? "Pending"
+                          : invite.status === "accepted"
+                          ? "Accepted"
+                          : "Error"
                       }}
                     </span>
                   </div>
