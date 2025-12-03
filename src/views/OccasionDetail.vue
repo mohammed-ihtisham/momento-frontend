@@ -59,111 +59,111 @@ const showInviteModal = ref(false);
 const newCollaboratorUsername = ref("");
 
 // Incoming invitations for the current user (inbox-style)
-type InvitationStatus = "pending" | "accepted" | "error";
-interface Invitation {
-  id: string;
-  invitePayload?: any;
-  toUsername: string;
-  senderId?: any;
-  occasionId?: any;
-  createdAt: string;
-  status: InvitationStatus;
-  errorMessage?: string;
-}
+// type InvitationStatus = "pending" | "accepted" | "error";
+// interface Invitation {
+//   id: string;
+//   invitePayload?: any;
+//   toUsername: string;
+//   senderId?: any;
+//   occasionId?: any;
+//   createdAt: string;
+//   status: InvitationStatus;
+//   errorMessage?: string;
+// }
 
-const invitations = ref<Invitation[]>([]);
+// const invitations = ref<Invitation[]>([]);
 
-const pendingInvitationsCount = computed(
-  () => invitations.value.filter((i) => i.status === "pending").length
-);
+// const pendingInvitationsCount = computed(
+//   () => invitations.value.filter((i) => i.status === "pending").length
+// );
 
 // Load incoming invites for the current user from backend
-const loadIncomingInvitations = async () => {
-  try {
-    const backendInvites = await collaboratorsApi.getIncomingInvites();
-    // Only show pending invites in the inbox
-    invitations.value = (backendInvites || [])
-      .filter((inv: any) => inv.status === "pending")
-      .map((inv: any) => {
-        const rawInvite = inv.invite;
-        const sender = inv.sender;
-        // Try to get username from sender - it might be an ID or user object
-        let username = "someone";
-        if (typeof sender === "string") {
-          username = sender;
-        } else if (sender?.username) {
-          username = sender.username;
-        } else if (sender?.name) {
-          username = sender.name;
-        }
+// const loadIncomingInvitations = async () => {
+//   try {
+//     const backendInvites = await collaboratorsApi.getIncomingInvites();
+//     // Only show pending invites in the inbox
+//     invitations.value = (backendInvites || [])
+//       .filter((inv: any) => inv.status === "pending")
+//       .map((inv: any) => {
+//         const rawInvite = inv.invite;
+//         const sender = inv.sender;
+//         // Try to get username from sender - it might be an ID or user object
+//         let username = "someone";
+//         if (typeof sender === "string") {
+//           username = sender;
+//         } else if (sender?.username) {
+//           username = sender.username;
+//         } else if (sender?.name) {
+//           username = sender.name;
+//         }
 
-        return {
-          id: String(rawInvite?.id ?? rawInvite ?? inv.id ?? ""),
-          invitePayload: rawInvite,
-          toUsername: username,
-          senderId: sender,
-          occasionId: inv.occasionId,
-          createdAt: inv.createdAt,
-          status: "pending" as InvitationStatus,
-        };
-      });
-  } catch (error) {
-    console.error(
-      "Failed to load collaborator invitations from backend:",
-      error
-    );
-    invitations.value = [];
-  }
-};
+//         return {
+//           id: String(rawInvite?.id ?? rawInvite ?? inv.id ?? ""),
+//           invitePayload: rawInvite,
+//           toUsername: username,
+//           senderId: sender,
+//           occasionId: inv.occasionId,
+//           createdAt: inv.createdAt,
+//           status: "pending" as InvitationStatus,
+//         };
+//       });
+//   } catch (error) {
+//     console.error(
+//       "Failed to load collaborator invitations from backend:",
+//       error
+//     );
+//     invitations.value = [];
+//   }
+// };
 
 // Load invites on demand (when mail icon is clicked)
-const loadInvitesOnDemand = async () => {
-  try {
-    // Load incoming invites
-    await loadIncomingInvitations();
+// const loadInvitesOnDemand = async () => {
+//   try {
+//     // Load incoming invites
+//     await loadIncomingInvitations();
 
-    // Load sent invites and update collaborators list
-    if (occasion.value?.occasion) {
-      await loadOccasionCollaborators(occasion.value.occasion, true);
-    }
-  } catch (error) {
-    console.error("Error loading invites on demand:", error);
-  }
-};
+//     // Load sent invites and update collaborators list
+//     if (occasion.value?.occasion) {
+//       await loadOccasionCollaborators(occasion.value.occasion, true);
+//     }
+//   } catch (error) {
+//     console.error("Error loading invites on demand:", error);
+//   }
+// };
 
 // Handle accepting an invitation
-const handleAcceptInvite = async (invite: Invitation) => {
-  try {
-    await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id);
-    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
-    // Reload collaborators to show the newly accepted user (include sent invites)
-    if (occasion.value?.occasion) {
-      await loadOccasionCollaborators(occasion.value.occasion, true);
-    }
-  } catch (error: any) {
-    console.error("Error accepting invitation:", error);
-    alert(
-      error instanceof Error
-        ? error.message
-        : "Failed to accept invitation. Please try again."
-    );
-  }
-};
+// const handleAcceptInvite = async (invite: Invitation) => {
+//   try {
+//     await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id);
+//     invitations.value = invitations.value.filter((i) => i.id !== invite.id);
+//     // Reload collaborators to show the newly accepted user (include sent invites)
+//     if (occasion.value?.occasion) {
+//       await loadOccasionCollaborators(occasion.value.occasion, true);
+//     }
+//   } catch (error: any) {
+//     console.error("Error accepting invitation:", error);
+//     alert(
+//       error instanceof Error
+//         ? error.message
+//         : "Failed to accept invitation. Please try again."
+//     );
+//   }
+// };
 
 // Handle declining an invitation
-const handleDeclineInvite = async (invite: Invitation) => {
-  try {
-    await collaboratorsApi.declineInvite(invite.invitePayload ?? invite.id);
-    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
-  } catch (error: any) {
-    console.error("Error declining invitation:", error);
-    alert(
-      error instanceof Error
-        ? error.message
-        : "Failed to decline invitation. Please try again."
-    );
-  }
-};
+// const handleDeclineInvite = async (invite: Invitation) => {
+//   try {
+//     await collaboratorsApi.declineInvite(invite.invitePayload ?? invite.id);
+//     invitations.value = invitations.value.filter((i) => i.id !== invite.id);
+//   } catch (error: any) {
+//     console.error("Error declining invitation:", error);
+//     alert(
+//       error instanceof Error
+//         ? error.message
+//         : "Failed to decline invitation. Please try again."
+//     );
+//   }
+// };
 
 // Planning Checklist
 const tasks = ref<
@@ -232,6 +232,9 @@ const persistOccasionNotesSelection = () => {
 // Occasion note creation modal state
 const showNoteModal = ref(false);
 const isCreatingOccasionNote = ref(false);
+
+// No notes modal state
+const showNoNotesModal = ref(false);
 
 // Existing notes on this person (from Relationship notes)
 const relationshipNotes = ref<
@@ -1074,9 +1077,9 @@ const loadOccasionCollaborators = async (
 };
 
 // Remove collaborator (local UI only for now)
-const removeCollaborator = (collabId: string) => {
-  collaborators.value = collaborators.value.filter((c) => c.id !== collabId);
-};
+// const removeCollaborator = (collabId: string) => {
+//   collaborators.value = collaborators.value.filter((c) => c.id !== collabId);
+// };
 
 // Get suggestions
 const getSuggestions = async () => {
@@ -1086,9 +1089,7 @@ const getSuggestions = async () => {
   }
 
   if (!relationshipName.value || notes.value.length === 0) {
-    alert(
-      "Add some shared notes for this person first to get tailored suggestions."
-    );
+    showNoNotesModal.value = true;
     return;
   }
 
@@ -1145,10 +1146,10 @@ const handleLogout = async () => {
 };
 
 // Handle mail icon click - load invites on demand
-const handleMailIconClick = async () => {
-  await loadInvitesOnDemand();
-  showInvitesMenu.value = !showInvitesMenu.value;
-};
+// const handleMailIconClick = async () => {
+//   await loadInvitesOnDemand();
+//   showInvitesMenu.value = !showInvitesMenu.value;
+// };
 
 // Close user menu when clicking outside
 const handleClickOutside = (event: MouseEvent) => {
@@ -1206,7 +1207,7 @@ onUnmounted(() => {
           <span class="logo-text">Momento</span>
         </div>
         <div class="navbar-right">
-          <div class="navbar-mail-wrapper">
+          <!-- <div class="navbar-mail-wrapper">
             <button
               @click.stop="handleMailIconClick"
               class="navbar-mail-button"
@@ -1290,7 +1291,7 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
-          </div>
+          </div> -->
           <div class="user-menu-wrapper">
             <button
               @click.stop="showUserMenu = !showUserMenu"
@@ -1306,36 +1307,6 @@ onUnmounted(() => {
               </div>
             </button>
             <div v-if="showUserMenu" class="user-menu-dropdown" @click.stop>
-              <button class="menu-item" @click="showUserMenu = false">
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                  <circle cx="12" cy="7" r="4"></circle>
-                </svg>
-                View Profile
-              </button>
-              <button class="menu-item" @click="showUserMenu = false">
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <circle cx="12" cy="12" r="3"></circle>
-                  <path
-                    d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"
-                  ></path>
-                </svg>
-                Settings
-              </button>
               <button class="menu-item menu-item-danger" @click="handleLogout">
                 <svg
                   width="16"
@@ -1447,7 +1418,7 @@ onUnmounted(() => {
         </div>
 
         <!-- Collaborators Section -->
-        <section class="occasion-section">
+        <!-- <section class="occasion-section">
           <h2 class="section-title">Collaborators</h2>
           <div class="collaborators-pills">
             <div
@@ -1502,7 +1473,7 @@ onUnmounted(() => {
               Invite +
             </button>
           </div>
-        </section>
+        </section> -->
 
         <!-- Planning Checklist Section -->
         <section class="occasion-section">
@@ -2076,5 +2047,94 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- No Notes Modal -->
+    <transition name="modal">
+      <div
+        v-if="showNoNotesModal"
+        class="modal-overlay"
+        @click.self="showNoNotesModal = false"
+      >
+        <div class="modal-content no-notes-modal" @click.stop>
+          <div class="modal-header">
+            <h2 class="modal-title">Add Notes First</h2>
+            <button
+              @click="showNoNotesModal = false"
+              class="modal-close"
+              aria-label="Close modal"
+            >
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+          <div class="modal-body no-notes-modal-body">
+            <div class="no-notes-icon">
+              <svg
+                width="64"
+                height="64"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+                <polyline points="10 9 9 9 8 9"></polyline>
+              </svg>
+            </div>
+            <h3 class="no-notes-title">
+              We need more information to generate suggestions
+            </h3>
+            <p class="no-notes-message">
+              Add some shared notes about
+              <strong>{{ relationshipName || "this person" }}</strong> first to
+              get personalized gift suggestions tailored to their interests and
+              preferences.
+            </p>
+          </div>
+          <div class="modal-footer no-notes-modal-footer">
+            <button
+              @click="showNoNotesModal = false"
+              class="button-secondary"
+            >
+              Got it
+            </button>
+            <button
+              @click="
+                showNoNotesModal = false;
+                openOccasionNoteModal();
+              "
+              class="button-primary"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              Add Note
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>

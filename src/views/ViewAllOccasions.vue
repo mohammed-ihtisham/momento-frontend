@@ -6,7 +6,7 @@ import {
   relationshipApi,
   profileApi,
   occasionsApi,
-  collaboratorsApi,
+  // collaboratorsApi,
 } from "../api";
 
 const router = useRouter();
@@ -49,9 +49,9 @@ const invitations = ref<
   }>
 >([]);
 
-const pendingInvitationsCount = computed(
-  () => invitations.value.filter((i) => i.status === "pending").length
-);
+// const pendingInvitationsCount = computed(
+//   () => invitations.value.filter((i) => i.status === "pending").length
+// );
 
 // Modal state
 const showCreateModal = ref(false);
@@ -66,6 +66,11 @@ const formDate = ref("");
 const formDescription = ref("");
 const formRelationship = ref<any>(null);
 const isSubmitting = ref(false);
+const formErrors = ref({
+  name: "",
+  date: "",
+  relationship: "",
+});
 
 // Filter and sort state
 const selectedPersonFilter = ref<string | null>(null);
@@ -115,37 +120,37 @@ const loadInvitations = async () => {
   }
 };
 
-const handleAcceptInvite = async (
-  invite: (typeof invitations.value)[number]
-) => {
-  try {
-    await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id);
-    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
-  } catch (error: any) {
-    console.error("Error accepting invitation:", error);
-    alert(
-      error instanceof Error
-        ? error.message
-        : "Failed to accept invitation. Please try again."
-    );
-  }
-};
+// const handleAcceptInvite = async (
+//   invite: (typeof invitations.value)[number]
+// ) => {
+//   try {
+//     await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id);
+//     invitations.value = invitations.value.filter((i) => i.id !== invite.id);
+//   } catch (error: any) {
+//     console.error("Error accepting invitation:", error);
+//     alert(
+//       error instanceof Error
+//         ? error.message
+//         : "Failed to accept invitation. Please try again."
+//     );
+//   }
+// };
 
-const handleDeclineInvite = async (
-  invite: (typeof invitations.value)[number]
-) => {
-  try {
-    await collaboratorsApi.declineInvite(invite.id);
-    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
-  } catch (error: any) {
-    console.error("Error declining invitation:", error);
-    alert(
-      error instanceof Error
-        ? error.message
-        : "Failed to decline invitation. Please try again."
-    );
-  }
-};
+// const handleDeclineInvite = async (
+//   invite: (typeof invitations.value)[number]
+// ) => {
+//   try {
+//     await collaboratorsApi.declineInvite(invite.id);
+//     invitations.value = invitations.value.filter((i) => i.id !== invite.id);
+//   } catch (error: any) {
+//     console.error("Error declining invitation:", error);
+//     alert(
+//       error instanceof Error
+//         ? error.message
+//         : "Failed to decline invitation. Please try again."
+//     );
+//   }
+// };
 
 // Get unique person names for filter
 const relationshipNames = computed(() => {
@@ -322,6 +327,11 @@ const closeCreateModal = () => {
   formDate.value = "";
   formDescription.value = "";
   formRelationship.value = null;
+  formErrors.value = {
+    name: "",
+    date: "",
+    relationship: "",
+  };
 };
 
 // Open edit modal
@@ -343,6 +353,11 @@ const closeEditModal = () => {
   formDate.value = "";
   formDescription.value = "";
   formRelationship.value = null;
+  formErrors.value = {
+    name: "",
+    date: "",
+    relationship: "",
+  };
 };
 
 // Helper function to parse date string in local timezone (avoids timezone shift)
@@ -365,8 +380,29 @@ const formatDateForInput = (date: Date | string): string => {
 
 // Create occasion
 const handleCreateOccasion = async () => {
-  if (!formName.value.trim() || !formDate.value || !formRelationship.value) {
-    alert("Please fill in all required fields");
+  // Reset errors
+  formErrors.value = {
+    name: "",
+    date: "",
+    relationship: "",
+  };
+
+  // Validate fields
+  let hasErrors = false;
+  if (!formName.value.trim()) {
+    formErrors.value.name = "Please enter an occasion name";
+    hasErrors = true;
+  }
+  if (!formDate.value) {
+    formErrors.value.date = "Please select a date";
+    hasErrors = true;
+  }
+  if (!formRelationship.value) {
+    formErrors.value.relationship = "Please select a person";
+    hasErrors = true;
+  }
+
+  if (hasErrors) {
     return;
   }
 
@@ -392,8 +428,29 @@ const handleCreateOccasion = async () => {
 
 // Update occasion
 const handleUpdateOccasion = async () => {
-  if (!formName.value.trim() || !formDate.value || !formRelationship.value) {
-    alert("Please fill in all required fields");
+  // Reset errors
+  formErrors.value = {
+    name: "",
+    date: "",
+    relationship: "",
+  };
+
+  // Validate fields
+  let hasErrors = false;
+  if (!formName.value.trim()) {
+    formErrors.value.name = "Please enter an occasion name";
+    hasErrors = true;
+  }
+  if (!formDate.value) {
+    formErrors.value.date = "Please select a date";
+    hasErrors = true;
+  }
+  if (!formRelationship.value) {
+    formErrors.value.relationship = "Please select a person";
+    hasErrors = true;
+  }
+
+  if (hasErrors) {
     return;
   }
 
@@ -546,7 +603,7 @@ onUnmounted(() => {
           <span class="logo-text">Momento</span>
         </div>
         <div class="navbar-right">
-          <div class="navbar-mail-wrapper">
+          <!-- <div class="navbar-mail-wrapper">
             <button
               @click.stop="showInvitesMenu = !showInvitesMenu"
               class="navbar-mail-button"
@@ -627,7 +684,7 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
-          </div>
+          </div> -->
           <div class="user-menu-wrapper">
             <button
               @click.stop="showUserMenu = !showUserMenu"
@@ -643,36 +700,6 @@ onUnmounted(() => {
               </div>
             </button>
             <div v-if="showUserMenu" class="user-menu-dropdown" @click.stop>
-              <button class="menu-item" @click="showUserMenu = false">
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                  <circle cx="12" cy="7" r="4"></circle>
-                </svg>
-                View Profile
-              </button>
-              <button class="menu-item" @click="showUserMenu = false">
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <circle cx="12" cy="12" r="3"></circle>
-                  <path
-                    d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"
-                  ></path>
-                </svg>
-                Settings
-              </button>
               <button class="menu-item menu-item-danger" @click="handleLogout">
                 <svg
                   width="16"
@@ -1108,8 +1135,13 @@ onUnmounted(() => {
                 type="text"
                 placeholder="e.g., Birthday, Anniversary"
                 class="form-input"
+                :class="{ 'has-error': formErrors.name }"
                 required
+                @input="formErrors.name = ''"
               />
+              <span v-if="formErrors.name" class="field-error">{{
+                formErrors.name
+              }}</span>
             </div>
             <div class="form-group">
               <label class="form-label">Date *</label>
@@ -1117,12 +1149,23 @@ onUnmounted(() => {
                 v-model="formDate"
                 type="date"
                 class="form-input"
+                :class="{ 'has-error': formErrors.date }"
                 required
+                @input="formErrors.date = ''"
               />
+              <span v-if="formErrors.date" class="field-error">{{
+                formErrors.date
+              }}</span>
             </div>
             <div class="form-group form-group-full">
               <label class="form-label">Person *</label>
-              <select v-model="formRelationship" class="form-input" required>
+              <select
+                v-model="formRelationship"
+                class="form-input"
+                :class="{ 'has-error': formErrors.relationship }"
+                required
+                @change="formErrors.relationship = ''"
+              >
                 <option :value="null">Select a person</option>
                 <option
                   v-for="relationship in allRelationships"
@@ -1132,6 +1175,9 @@ onUnmounted(() => {
                   {{ relationship.name }} ({{ relationship.relationshipType }})
                 </option>
               </select>
+              <span v-if="formErrors.relationship" class="field-error">{{
+                formErrors.relationship
+              }}</span>
             </div>
             <div class="form-group form-group-full">
               <label class="form-label">Description (Optional)</label>
@@ -1195,8 +1241,13 @@ onUnmounted(() => {
                 type="text"
                 placeholder="e.g., Birthday, Anniversary"
                 class="form-input"
+                :class="{ 'has-error': formErrors.name }"
                 required
+                @input="formErrors.name = ''"
               />
+              <span v-if="formErrors.name" class="field-error">{{
+                formErrors.name
+              }}</span>
             </div>
             <div class="form-group">
               <label class="form-label">Date *</label>
@@ -1204,12 +1255,23 @@ onUnmounted(() => {
                 v-model="formDate"
                 type="date"
                 class="form-input"
+                :class="{ 'has-error': formErrors.date }"
                 required
+                @input="formErrors.date = ''"
               />
+              <span v-if="formErrors.date" class="field-error">{{
+                formErrors.date
+              }}</span>
             </div>
             <div class="form-group form-group-full">
               <label class="form-label">Person *</label>
-              <select v-model="formRelationship" class="form-input" required>
+              <select
+                v-model="formRelationship"
+                class="form-input"
+                :class="{ 'has-error': formErrors.relationship }"
+                required
+                @change="formErrors.relationship = ''"
+              >
                 <option :value="null">Select a person</option>
                 <option
                   v-for="relationship in allRelationships"
@@ -1219,6 +1281,9 @@ onUnmounted(() => {
                   {{ relationship.name }} ({{ relationship.relationshipType }})
                 </option>
               </select>
+              <span v-if="formErrors.relationship" class="field-error">{{
+                formErrors.relationship
+              }}</span>
             </div>
             <div class="form-group form-group-full">
               <label class="form-label">Description (Optional)</label>

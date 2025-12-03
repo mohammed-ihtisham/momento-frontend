@@ -119,10 +119,11 @@ const handleSubmit = async () => {
     isCreating.value = true
 
     // Navigate to relationship detail page after animation
-    // Use the slugified name as the URL identifier
+    // Use replace instead of push so that AddProfile is removed from history
+    // This way, clicking back from RelationshipDetail will go to Dashboard, not AddProfile
     const slug = nameToSlug(name.value.trim())
     setTimeout(() => {
-      router.push(`/relationship/${slug}`)
+      router.replace(`/relationship/${slug}`)
     }, 2000)
 
   } catch (error) {

@@ -6,7 +6,7 @@ import {
   sessionManager,
   relationshipApi,
   occasionsApi,
-  collaboratorsApi,
+  // collaboratorsApi,
 } from "../api";
 import { nameToSlug } from "../utils";
 
@@ -38,15 +38,28 @@ const invitations = ref<
   }>
 >([]);
 
-const pendingInvitationsCount = computed(
-  () => invitations.value.filter((i) => i.status === "pending").length
-);
+// const pendingInvitationsCount = computed(
+//   () => invitations.value.filter((i) => i.status === "pending").length
+// );
 
 // Drag and drop state
 const draggedIndex = ref<number | null>(null);
 const dragOverIndex = ref<number | null>(null);
 const isDragging = ref(false);
 const justDropped = ref(false);
+
+// Create occasion modal state
+const showCreateOccasionModal = ref(false);
+const occasionFormName = ref("");
+const occasionFormDate = ref("");
+const occasionFormDescription = ref("");
+const occasionFormRelationship = ref<string | null>(null);
+const isSubmittingOccasion = ref(false);
+const occasionFormErrors = ref({
+  name: "",
+  date: "",
+  relationship: "",
+});
 
 // Get user's first name from profile
 const getUserFirstName = computed(() => {
@@ -99,37 +112,37 @@ const loadInvitations = async () => {
   }
 };
 
-const handleAcceptInvite = async (
-  invite: (typeof invitations.value)[number]
-) => {
-  try {
-    await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id);
-    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
-  } catch (error: any) {
-    console.error("Error accepting invitation:", error);
-    alert(
-      error instanceof Error
-        ? error.message
-        : "Failed to accept invitation. Please try again."
-    );
-  }
-};
+// const handleAcceptInvite = async (
+//   invite: (typeof invitations.value)[number]
+// ) => {
+//   try {
+//     await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id);
+//     invitations.value = invitations.value.filter((i) => i.id !== invite.id);
+//   } catch (error: any) {
+//     console.error("Error accepting invitation:", error);
+//     alert(
+//       error instanceof Error
+//         ? error.message
+//         : "Failed to accept invitation. Please try again."
+//     );
+//   }
+// };
 
-const handleDeclineInvite = async (
-  invite: (typeof invitations.value)[number]
-) => {
-  try {
-    await collaboratorsApi.declineInvite(invite.id);
-    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
-  } catch (error: any) {
-    console.error("Error declining invitation:", error);
-    alert(
-      error instanceof Error
-        ? error.message
-        : "Failed to decline invitation. Please try again."
-    );
-  }
-};
+// const handleDeclineInvite = async (
+//   invite: (typeof invitations.value)[number]
+// ) => {
+//   try {
+//     await collaboratorsApi.declineInvite(invite.id);
+//     invitations.value = invitations.value.filter((i) => i.id !== invite.id);
+//   } catch (error: any) {
+//     console.error("Error declining invitation:", error);
+//     alert(
+//       error instanceof Error
+//         ? error.message
+//         : "Failed to decline invitation. Please try again."
+//     );
+//   }
+// };
 
 // Helper function to normalize date to start of day for comparison
 const normalizeToDay = (date: Date): Date => {
@@ -308,6 +321,88 @@ const handleAddProfile = () => {
   router.push("/add-profile");
 };
 
+// Handle add occasion - open modal
+const handleAddOccasion = () => {
+  if (allRelationships.value.length === 0) {
+    alert("Please add a profile first before creating an occasion.");
+    return;
+  }
+  occasionFormName.value = "";
+  occasionFormDate.value = "";
+  occasionFormDescription.value = "";
+  occasionFormRelationship.value = null;
+  showCreateOccasionModal.value = true;
+};
+
+// Close create occasion modal
+const closeCreateOccasionModal = () => {
+  showCreateOccasionModal.value = false;
+  occasionFormName.value = "";
+  occasionFormDate.value = "";
+  occasionFormDescription.value = "";
+  occasionFormRelationship.value = null;
+  occasionFormErrors.value = {
+    name: "",
+    date: "",
+    relationship: "",
+  };
+};
+
+// Helper function to parse date string in local timezone
+const parseLocalDate = (dateString: string): Date => {
+  const parts = dateString.split("-").map(Number);
+  const year = parts[0] || new Date().getFullYear();
+  const month = parts[1] || 1;
+  const day = parts[2] || 1;
+  return new Date(year, month - 1, day);
+};
+
+// Create occasion
+const handleCreateOccasion = async () => {
+  // Reset errors
+  occasionFormErrors.value = {
+    name: "",
+    date: "",
+    relationship: "",
+  };
+
+  // Validate fields
+  let hasErrors = false;
+  if (!occasionFormName.value.trim()) {
+    occasionFormErrors.value.name = "Please enter an occasion name";
+    hasErrors = true;
+  }
+  if (!occasionFormDate.value) {
+    occasionFormErrors.value.date = "Please select a date";
+    hasErrors = true;
+  }
+  if (!occasionFormRelationship.value) {
+    occasionFormErrors.value.relationship = "Please select a person";
+    hasErrors = true;
+  }
+
+  if (hasErrors) {
+    return;
+  }
+
+  try {
+    isSubmittingOccasion.value = true;
+    await occasionsApi.createOccasion(
+      currentUser.value,
+      occasionFormRelationship.value!,
+      occasionFormName.value.trim(),
+      parseLocalDate(occasionFormDate.value)
+    );
+    closeCreateOccasionModal();
+    await loadDashboardData();
+  } catch (error: any) {
+    console.error("Error creating occasion:", error);
+    alert(error.message || "Failed to create occasion");
+  } finally {
+    isSubmittingOccasion.value = false;
+  }
+};
+
 // Handle view all relationships
 const handleViewAllRelationships = () => {
   router.push("/view-all");
@@ -470,7 +565,7 @@ onUnmounted(() => {
             <span class="logo-text">Momento</span>
           </div>
           <div class="navbar-right">
-            <div class="navbar-mail-wrapper">
+            <!-- <div class="navbar-mail-wrapper">
               <button
                 @click.stop="showInvitesMenu = !showInvitesMenu"
                 class="navbar-mail-button"
@@ -551,7 +646,7 @@ onUnmounted(() => {
                   </div>
                 </div>
               </div>
-            </div>
+            </div> -->
             <div class="user-menu-wrapper">
               <button
                 @click.stop="showUserMenu = !showUserMenu"
@@ -567,36 +662,6 @@ onUnmounted(() => {
                 </div>
               </button>
               <div v-if="showUserMenu" class="user-menu-dropdown" @click.stop>
-                <button class="menu-item" @click="showUserMenu = false">
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                  >
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                    <circle cx="12" cy="7" r="4"></circle>
-                  </svg>
-                  View Profile
-                </button>
-                <button class="menu-item" @click="showUserMenu = false">
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                  >
-                    <circle cx="12" cy="12" r="3"></circle>
-                    <path
-                      d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"
-                    ></path>
-                  </svg>
-                  Settings
-                </button>
                 <button
                   class="menu-item menu-item-danger"
                   @click="handleLogout"
@@ -772,19 +837,144 @@ onUnmounted(() => {
                   </div>
                 </div>
               </div>
+              <div
+                v-if="upcomingOccasions.length < 3"
+                @click="handleAddOccasion"
+                class="occasion-card add-occasion-card"
+              >
+                <div class="add-occasion-content">
+                  <svg
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                  </svg>
+                  <span>Add Occasion</span>
+                </div>
+              </div>
               <div v-if="upcomingOccasions.length === 0" class="empty-state">
                 <p>
                   No upcoming occasions. Add one to stay on top of important
                   dates!
                 </p>
-                <button class="empty-state-button" @click="handleAddProfile">
-                  Add Occasion
-                </button>
               </div>
             </div>
           </section>
         </div>
       </main>
+    </div>
+
+    <!-- Create Occasion Modal -->
+    <div
+      v-if="showCreateOccasionModal"
+      class="modal-overlay"
+      @click.self="closeCreateOccasionModal"
+    >
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title">Create New Occasion</h2>
+          <button
+            @click="closeCreateOccasionModal"
+            class="modal-close"
+            aria-label="Close"
+          >
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">Occasion Name *</label>
+              <input
+                v-model="occasionFormName"
+                type="text"
+                placeholder="e.g., Birthday, Anniversary"
+                class="form-input"
+                :class="{ 'has-error': occasionFormErrors.name }"
+                required
+                @input="occasionFormErrors.name = ''"
+              />
+              <span v-if="occasionFormErrors.name" class="field-error">{{
+                occasionFormErrors.name
+              }}</span>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Date *</label>
+              <input
+                v-model="occasionFormDate"
+                type="date"
+                class="form-input"
+                :class="{ 'has-error': occasionFormErrors.date }"
+                required
+                @input="occasionFormErrors.date = ''"
+              />
+              <span v-if="occasionFormErrors.date" class="field-error">{{
+                occasionFormErrors.date
+              }}</span>
+            </div>
+            <div class="form-group form-group-full">
+              <label class="form-label">Person *</label>
+              <select
+                v-model="occasionFormRelationship"
+                class="form-input"
+                :class="{ 'has-error': occasionFormErrors.relationship }"
+                required
+                @change="occasionFormErrors.relationship = ''"
+              >
+                <option :value="null">Select a person</option>
+                <option
+                  v-for="relationship in allRelationships"
+                  :key="relationship.id"
+                  :value="relationship.name"
+                >
+                  {{ relationship.name }} ({{ relationship.relationshipType }})
+                </option>
+              </select>
+              <span
+                v-if="occasionFormErrors.relationship"
+                class="field-error"
+                >{{ occasionFormErrors.relationship }}</span
+              >
+            </div>
+            <div class="form-group form-group-full">
+              <label class="form-label">Description (Optional)</label>
+              <textarea
+                v-model="occasionFormDescription"
+                placeholder="Add any notes or details..."
+                class="form-textarea"
+                rows="2"
+              ></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closeCreateOccasionModal" class="button-secondary">
+            Cancel
+          </button>
+          <button
+            @click="handleCreateOccasion"
+            class="button-primary"
+            :disabled="isSubmittingOccasion"
+          >
+            {{ isSubmittingOccasion ? "Creating..." : "Create Occasion" }}
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>

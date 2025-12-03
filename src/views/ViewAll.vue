@@ -5,7 +5,7 @@ import {
   sessionManager,
   relationshipApi,
   profileApi,
-  collaboratorsApi,
+  // collaboratorsApi,
 } from "../api";
 import { nameToSlug } from "../utils";
 
@@ -36,9 +36,9 @@ const invitations = ref<
   }>
 >([]);
 
-const pendingInvitationsCount = computed(
-  () => invitations.value.filter((i) => i.status === "pending").length
-);
+// const pendingInvitationsCount = computed(
+//   () => invitations.value.filter((i) => i.status === "pending").length
+// );
 
 // Drag and drop state
 const draggedItem = ref<{
@@ -94,37 +94,37 @@ const loadInvitations = async () => {
   }
 };
 
-const handleAcceptInvite = async (
-  invite: (typeof invitations.value)[number]
-) => {
-  try {
-    await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id);
-    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
-  } catch (error: any) {
-    console.error("Error accepting invitation:", error);
-    alert(
-      error instanceof Error
-        ? error.message
-        : "Failed to accept invitation. Please try again."
-    );
-  }
-};
+// const handleAcceptInvite = async (
+//   invite: (typeof invitations.value)[number]
+// ) => {
+//   try {
+//     await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id);
+//     invitations.value = invitations.value.filter((i) => i.id !== invite.id);
+//   } catch (error: any) {
+//     console.error("Error accepting invitation:", error);
+//     alert(
+//       error instanceof Error
+//         ? error.message
+//         : "Failed to accept invitation. Please try again."
+//     );
+//   }
+// };
 
-const handleDeclineInvite = async (
-  invite: (typeof invitations.value)[number]
-) => {
-  try {
-    await collaboratorsApi.declineInvite(invite.id);
-    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
-  } catch (error: any) {
-    console.error("Error declining invitation:", error);
-    alert(
-      error instanceof Error
-        ? error.message
-        : "Failed to decline invitation. Please try again."
-    );
-  }
-};
+// const handleDeclineInvite = async (
+//   invite: (typeof invitations.value)[number]
+// ) => {
+//   try {
+//     await collaboratorsApi.declineInvite(invite.id);
+//     invitations.value = invitations.value.filter((i) => i.id !== invite.id);
+//   } catch (error: any) {
+//     console.error("Error declining invitation:", error);
+//     alert(
+//       error instanceof Error
+//         ? error.message
+//         : "Failed to decline invitation. Please try again."
+//     );
+//   }
+// };
 
 // Get all relationships that are not pinned
 const unpinnedRelationships = computed(() => {
@@ -420,7 +420,7 @@ onUnmounted(() => {
           <span class="logo-text">Momento</span>
         </div>
         <div class="navbar-right">
-          <div class="navbar-mail-wrapper">
+          <!-- <div class="navbar-mail-wrapper">
             <button
               @click.stop="showInvitesMenu = !showInvitesMenu"
               class="navbar-mail-button"
@@ -501,7 +501,7 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
-          </div>
+          </div> -->
           <div class="user-menu-wrapper">
             <button
               @click.stop="showUserMenu = !showUserMenu"
@@ -517,36 +517,6 @@ onUnmounted(() => {
               </div>
             </button>
             <div v-if="showUserMenu" class="user-menu-dropdown" @click.stop>
-              <button class="menu-item" @click="showUserMenu = false">
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                  <circle cx="12" cy="7" r="4"></circle>
-                </svg>
-                View Profile
-              </button>
-              <button class="menu-item" @click="showUserMenu = false">
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <circle cx="12" cy="12" r="3"></circle>
-                  <path
-                    d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"
-                  ></path>
-                </svg>
-                Settings
-              </button>
               <button class="menu-item menu-item-danger" @click="handleLogout">
                 <svg
                   width="16"
