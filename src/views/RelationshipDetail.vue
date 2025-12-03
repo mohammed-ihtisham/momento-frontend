@@ -7,6 +7,7 @@ import {
   profileApi,
   notesApi,
   memoryGalleryApi,
+  collaboratorsApi,
 } from "../api";
 import { nameToSlug } from "../utils";
 
@@ -22,11 +23,12 @@ const relationshipName = ref("");
 const relationshipType = ref("");
 const showUserMenu = ref(false);
 
-// Invitations dropdown
+// Invitations dropdown (inbox)
 const showInvitesMenu = ref(false);
 const invitations = ref<
   Array<{
     id: string;
+    invitePayload: any;
     toUsername: string;
     createdAt: string;
     status: "pending" | "accepted" | "error";
@@ -72,21 +74,59 @@ const getUserFirstName = computed(() => {
   return "User";
 });
 
-// Load invitations from localStorage
-const loadInvitations = () => {
-  if (!currentUser.value) return;
-  const key = `momento_collab_invites_${currentUser.value.id || currentUser.value.username}`;
+// Load incoming invitations for the current user from backend
+const loadInvitations = async () => {
   try {
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      invitations.value = [];
-      return;
-    }
-    const parsed = JSON.parse(raw);
-    invitations.value = Array.isArray(parsed) ? parsed : [];
+    const backendInvites = await collaboratorsApi.getIncomingInvites();
+    invitations.value = (backendInvites || [])
+      .filter((inv: any) => inv.status === "pending")
+      .map((inv: any) => {
+        const rawInvite = inv.invite;
+        const sender = inv.sender;
+        const username =
+          typeof sender === "string"
+            ? sender
+            : sender?.username || sender?.name || "someone";
+
+        return {
+          id: String(rawInvite?.id ?? rawInvite ?? inv.id ?? ""),
+          invitePayload: rawInvite,
+          toUsername: username,
+          createdAt: inv.createdAt,
+          status: "pending" as const,
+        };
+      });
   } catch (error) {
     console.error("Failed to load collaborator invitations:", error);
     invitations.value = [];
+  }
+};
+
+const handleAcceptInvite = async (invite: (typeof invitations.value)[number]) => {
+  try {
+    await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id);
+    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
+  } catch (error: any) {
+    console.error("Error accepting invitation:", error);
+    alert(
+      error instanceof Error
+        ? error.message
+        : "Failed to accept invitation. Please try again."
+    );
+  }
+};
+
+const handleDeclineInvite = async (invite: (typeof invitations.value)[number]) => {
+  try {
+    await collaboratorsApi.declineInvite(invite.id);
+    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
+  } catch (error: any) {
+    console.error("Error declining invitation:", error);
+    alert(
+      error instanceof Error
+        ? error.message
+        : "Failed to decline invitation. Please try again."
+    );
   }
 };
 
@@ -451,7 +491,7 @@ onMounted(async () => {
   currentUser.value = savedUser;
   await loadUserProfile();
   await loadRelationshipData();
-  loadInvitations();
+  await loadInvitations();
 
   document.addEventListener("click", handleClickOutside);
 });
@@ -551,6 +591,20 @@ onUnmounted(() => {
                   </div>
                   <div class="navbar-mail-date">
                     {{ new Date(invite.createdAt).toLocaleDateString() }}
+                  </div>
+                  <div class="navbar-mail-actions">
+                    <button
+                      class="navbar-mail-action-accept"
+                      @click="handleAcceptInvite(invite)"
+                    >
+                      Accept
+                    </button>
+                    <button
+                      class="navbar-mail-action-decline"
+                      @click="handleDeclineInvite(invite)"
+                    >
+                      Decline
+                    </button>
                   </div>
                 </div>
               </div>

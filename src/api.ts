@@ -35,12 +35,33 @@ async function apiCall<T>(
   
   let response: Response
   try {
+    // Automatically attach session to every request body when available,
+    // unless the caller has already provided a session field.
+    let finalBody: Record<string, any> = { ...body }
+    try {
+      // sessionManager is declared later in this file; it's safe to reference here at runtime.
+      // We guard with typeof to avoid issues in tests or unusual environments.
+      // eslint-disable-next-line @typescript-eslint/no-use-before-define
+      const existingHasSession = Object.prototype.hasOwnProperty.call(body, 'session')
+      // eslint-disable-next-line @typescript-eslint/no-use-before-define
+      const session =
+        !existingHasSession && typeof sessionManager !== 'undefined'
+          ? (sessionManager as any).getSession?.()
+          : null
+      if (session) {
+        finalBody = { ...finalBody, session }
+      }
+    } catch {
+      // If anything goes wrong while attaching session, fall back to the original body.
+      finalBody = body
+    }
+
     response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(finalBody),
     })
   } catch (error) {
     // Handle network errors (connection refused, CORS, etc.)
@@ -158,10 +179,14 @@ export const userAuthApi = {
    * POST /api/UserAuth/login
    */
   async login(username: string, password: string): Promise<User> {
-    const response = await apiCall<ApiResponse<User>>('/UserAuth/login', {
+    const response = await apiCall<any>('/UserAuth/login', {
       username,
       password,
     })
+    // Persist session token if backend provides one
+    if (response.session) {
+      sessionManager.setSession(response.session)
+    }
     if (!response.user) {
       throw new Error('Failed to login user')
     }
@@ -277,13 +302,10 @@ export const profileApi = {
  */
 export const collaboratorsApi = {
   /**
-   * Invite / add a collaborator by username.
-   * This will:
-   * 1) Resolve the username to a User via UserAuth._getUserByUsername
-   * 2) Call Collaborators/addCollaborator with that user
+   * (LEGACY) Directly add a collaborator by username (no invite workflow).
+   * Prefer using createInvite + acceptInvite in new code.
    */
   async addCollaboratorByUsername(username: string): Promise<{ user: User }> {
-    // Resolve user by username first to give clearer errors
     const user = await userAuthApi.getUserByUsername(username)
 
     await apiCall<{}>('/Collaborators/addCollaborator', {
@@ -317,10 +339,9 @@ export const collaboratorsApi = {
    */
   async hasCollaborator(user: User | string): Promise<boolean> {
     const userPayload = typeof user === 'string' ? user : user.id || user.username || user
-    const response = await apiCall<Array<{ value: boolean }>>(
-      '/Collaborators/_hasCollaborator',
-      { user: userPayload }
-    )
+    const response = await apiCall<Array<{ value: boolean }>>('/Collaborators/_hasCollaborator', {
+      user: userPayload,
+    })
     if (Array.isArray(response) && typeof response[0]?.value === 'boolean') {
       return response[0].value
     }
@@ -329,6 +350,109 @@ export const collaboratorsApi = {
       return response as unknown as boolean
     }
     return false
+  },
+
+  /**
+   * Create a collaboration invite for a specific occasion by recipient username.
+   * The backend:
+   *  - Resolves the username to a User
+   *  - Creates a pending invite tied to the occasion
+   */
+  async createInvite(
+    recipientUsername: string,
+    occasionId: any
+  ): Promise<{ invite: string }> {
+    const response = await apiCall<{ invite: string }>(
+      '/Collaborators/createInvite',
+      {
+        recipientUsername,
+        occasionId,
+      }
+    )
+    return response
+  },
+
+  /**
+   * Get all incoming (received) invites for the current user.
+   */
+  async getIncomingInvites(): Promise<
+    Array<{
+      invite: any
+      occasionId: any
+      sender: User
+      status: string
+      createdAt: string
+    }>
+  > {
+    const response = await apiCall<{ invites?: any[] }>(
+      '/Collaborators/_getIncomingInvites',
+      {}
+    )
+    return (response.invites || []) as Array<{
+      invite: string
+      occasionId: any
+      sender: User
+      status: string
+      createdAt: string
+    }>
+  },
+
+  /**
+   * Get all invites sent by the current user.
+   */
+  async getSentInvites(): Promise<
+    Array<{
+      invite: any
+      occasionId: any
+      recipient: User
+      status: string
+      createdAt: string
+      updatedAt: string
+    }>
+  > {
+    const response = await apiCall<{ invites?: any[] }>(
+      '/Collaborators/_getSentInvites',
+      {}
+    )
+    return (response.invites || []) as Array<{
+      invite: string
+      occasionId: any
+      recipient: User
+      status: string
+      createdAt: string
+      updatedAt: string
+    }>
+  },
+
+  /**
+   * Accept an invitation (current user must be the recipient).
+   */
+  async acceptInvite(invite: any): Promise<void> {
+    await apiCall<{ status: string }>(
+      '/Collaborators/acceptInvite',
+      { invite }
+    )
+  },
+
+  /**
+   * Decline an invitation (current user must be the recipient).
+   */
+  async declineInvite(invite: any): Promise<void> {
+    await apiCall<{ status: string }>(
+      '/Collaborators/declineInvite',
+      { invite }
+    )
+  },
+
+  /**
+   * Get accepted collaborators for a single occasion.
+   */
+  async getCollaboratorsForOccasion(occasionId: any): Promise<any[]> {
+    const response = await apiCall<{ collaborators?: any[] }>(
+      '/Collaborators/_getCollaboratorsForOccasion',
+      { occasionId }
+    )
+    return response.collaborators || []
   },
 }
 
@@ -896,6 +1020,13 @@ export const sessionManager = {
   },
 
   /**
+   * Store backend session token (if provided by UserAuth)
+   */
+  setSession(session: string): void {
+    localStorage.setItem('momento_session', session)
+  },
+
+  /**
    * Get current user from session
    */
   getUser(): User | null {
@@ -913,6 +1044,7 @@ export const sessionManager = {
    */
   clearUser(): void {
     localStorage.removeItem('momento_user')
+    localStorage.removeItem('momento_session')
   },
 
   /**
@@ -920,6 +1052,13 @@ export const sessionManager = {
    */
   isLoggedIn(): boolean {
     return this.getUser() !== null
+  },
+
+  /**
+   * Get current backend session token (if any)
+   */
+  getSession(): string | null {
+    return localStorage.getItem('momento_session')
   },
 }
 

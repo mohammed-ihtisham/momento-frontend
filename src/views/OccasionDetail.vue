@@ -42,7 +42,7 @@ const allRelationships = ref<any[]>([])
 const relationship = ref<any | null>(null)
 const relationshipName = ref<string | null>(null)
 
-// Collaborators (backed by CollaboratorsConcept + local invite metadata)
+// Collaborators (backed by CollaboratorsConcept + invite workflow)
 const collaborators = ref<
   Array<{
     id: string
@@ -54,10 +54,11 @@ const collaborators = ref<
 const showInviteModal = ref(false)
 const newCollaboratorUsername = ref('')
 
-// Local invitations store (per-user, persisted in localStorage)
+// Incoming invitations for the current user (inbox-style)
 type InvitationStatus = 'pending' | 'accepted' | 'error'
 interface Invitation {
   id: string
+  invitePayload?: any
   toUsername: string
   createdAt: string
   status: InvitationStatus
@@ -66,42 +67,36 @@ interface Invitation {
 
 const invitations = ref<Invitation[]>([])
 
-const invitationsStorageKey = computed(() => {
-  const user = currentUser.value
-  if (!user) return null
-  const userPart = user.id || user.username || 'unknown'
-  return `momento_collab_invites_${userPart}`
-})
-
 const pendingInvitationsCount = computed(
   () => invitations.value.filter((i) => i.status === 'pending').length
 )
 
-const loadInvitationsFromStorage = () => {
-  if (!invitationsStorageKey.value) return
+// Load incoming invites for the current user from backend
+const loadIncomingInvitations = async () => {
   try {
-    const raw = localStorage.getItem(invitationsStorageKey.value)
-    if (!raw) {
-      invitations.value = []
-      return
-    }
-    const parsed = JSON.parse(raw) as Invitation[]
-    invitations.value = Array.isArray(parsed) ? parsed : []
-  } catch (error) {
-    console.error('Failed to load collaborator invitations from storage:', error)
-    invitations.value = []
-  }
-}
+    const backendInvites = await collaboratorsApi.getIncomingInvites()
+    // Only show pending invites in the inbox
+    invitations.value = (backendInvites || [])
+      .filter((inv: any) => inv.status === 'pending')
+      .map((inv: any) => {
+        const rawInvite = inv.invite
+        const sender = inv.sender
+        const username =
+          typeof sender === 'string'
+            ? sender
+            : sender?.username || sender?.name || 'someone'
 
-const persistInvitationsToStorage = () => {
-  if (!invitationsStorageKey.value) return
-  try {
-    localStorage.setItem(
-      invitationsStorageKey.value,
-      JSON.stringify(invitations.value)
-    )
+        return {
+          id: String(rawInvite?.id ?? rawInvite ?? inv.id ?? ''),
+          invitePayload: rawInvite,
+          toUsername: username,
+          createdAt: inv.createdAt,
+          status: 'pending' as InvitationStatus,
+        }
+      })
   } catch (error) {
-    console.error('Failed to persist collaborator invitations to storage:', error)
+    console.error('Failed to load collaborator invitations from backend:', error)
+    invitations.value = []
   }
 }
 
@@ -440,9 +435,11 @@ const loadOccasion = async () => {
         relationshipNotes.value = []
       }
       
-      // Initialize collaborators from backend CollaboratorsConcept
+      // Initialize collaborators for this occasion from backend CollaboratorsConcept
       try {
-        const backendCollaborators = await collaboratorsApi.getCollaborators()
+        const backendCollaborators = await collaboratorsApi.getCollaboratorsForOccasion(
+          found.occasion
+        )
         const mapped = backendCollaborators.map((c: any) => {
           const id = c.id || c._id || c.user || c
           const username: string =
@@ -494,8 +491,47 @@ const loadOccasion = async () => {
         }
       }
 
-      // Load any existing invitation metadata from localStorage
-      loadInvitationsFromStorage()
+      // Load incoming invitations for this user from backend
+      await loadIncomingInvitations()
+
+      // Load any pending invites the current user has sent for this occasion
+      try {
+        const sentInvites = await collaboratorsApi.getSentInvites()
+        const currentOccasionId = found.occasion
+        const pendingForOccasion = (sentInvites || []).filter(
+          (inv: any) =>
+            inv.occasionId === currentOccasionId && inv.status === 'pending'
+        )
+
+        for (const inv of pendingForOccasion) {
+          const rawRecipient = inv.recipient
+          const id =
+            (rawRecipient as any)?.id ||
+            (rawRecipient as any)?._id ||
+            rawRecipient
+          const username =
+            (rawRecipient as any)?.username ||
+            (rawRecipient as any)?.name ||
+            String(id ?? 'collaborator')
+          const initial = username.charAt(0).toUpperCase()
+
+          const alreadyExists = collaborators.value.some(
+            (c) =>
+              c.id === String(id) ||
+              c.name.toLowerCase() === username.toLowerCase()
+          )
+          if (!alreadyExists) {
+            collaborators.value.push({
+              id: String(inv.invite ?? id ?? username),
+              name: username,
+              initial,
+              status: 'pending',
+            })
+          }
+        }
+      } catch (error) {
+        console.error('Error loading sent collaborator invites for occasion:', error)
+      }
       
       // Load planning checklist tasks for this user from backend
       try {
@@ -854,72 +890,58 @@ const inviteCollaborator = async () => {
     )
   ) {
     alert('This user is already a collaborator.')
-    newCollaboratorUsername.value = ''
-    showInviteModal.value = false
     return
   }
 
-  // Create local invitation in pending state
-  const invitationId = Date.now().toString()
-  const newInvitation: Invitation = {
-    id: invitationId,
-    toUsername: username,
-    createdAt: new Date().toISOString(),
-    status: 'pending',
-  }
-  invitations.value.unshift(newInvitation)
-  persistInvitationsToStorage()
-
-  // Optimistically show pending collaborator pill
-  const initial = username.charAt(0).toUpperCase()
-  collaborators.value.push({
-    id: invitationId,
-    name: username,
-    initial,
-    status: 'pending',
-  })
-
-  newCollaboratorUsername.value = ''
-  showInviteModal.value = false
-
   try {
-    const { user } = await collaboratorsApi.addCollaboratorByUsername(username)
-
-    // Mark invitation as accepted
-    const invite = invitations.value.find((i) => i.id === invitationId)
-    if (invite) {
-      invite.status = 'accepted'
-      invite.errorMessage = undefined
+    if (!occasion.value?.occasion) {
+      throw new Error('Occasion not found. Please reload the page and try again.')
     }
-    persistInvitationsToStorage()
 
-    // Replace pending collaborator pill with accepted (stable id if available)
-    const userId = (user as any).id || (user as any).username || username
-    const idx = collaborators.value.findIndex((c) => c.id === invitationId)
-    if (idx !== -1) {
-      collaborators.value[idx] = {
-        id: String(userId),
-        name: (user as any).username || username,
-        initial: ((user as any).username || username).charAt(0).toUpperCase(),
-        status: 'accepted',
-      }
+    await collaboratorsApi.createInvite(username, occasion.value.occasion)
+
+    // On success, show pending collaborator pill
+    const initial = username.charAt(0).toUpperCase()
+    const alreadyExists = collaborators.value.some(
+      (c) => c.name.toLowerCase() === username.toLowerCase()
+    )
+    if (!alreadyExists) {
+      collaborators.value.push({
+        id: Date.now().toString(),
+        name: username,
+        initial,
+        status: 'pending',
+      })
     }
+
+    // Only clear input & close modal on success
+    newCollaboratorUsername.value = ''
+    showInviteModal.value = false
   } catch (error: any) {
     console.error('Error inviting collaborator:', error)
 
-    const invite = invitations.value.find((i) => i.id === invitationId)
-    if (invite) {
-      invite.status = 'error'
-      invite.errorMessage =
-        error?.message || 'Failed to send invitation. Please try again.'
-    }
-    persistInvitationsToStorage()
-
-    alert(
+    const rawMessage =
       error instanceof Error
         ? error.message
         : 'Failed to invite collaborator. Please check the username and try again.'
-    )
+
+    const lower = rawMessage.toLowerCase()
+
+    // Provide a cleaner message when a pending invite already exists
+    if (lower.includes('pending invite already exists')) {
+      alert('An invitation is already pending for this user on this occasion.')
+      return
+    }
+
+    // Provide a clearer message if sender/recipient validation failed
+    if (lower.includes('sender and recipient are required')) {
+      alert(
+        'Unable to send invite. Please make sure you are logged in and the username is valid, then try again.'
+      )
+      return
+    }
+
+    alert(rawMessage)
   }
 }
 
