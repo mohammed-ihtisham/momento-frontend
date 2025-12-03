@@ -10,6 +10,7 @@ import {
   tasksApi,
   taskChecklistApi,
   collaboratorsApi,
+  suggestionEngineApi,
 } from '../api'
 
 const router = useRouter()
@@ -929,23 +930,54 @@ const removeCollaborator = (collabId: string) => {
 
 // Get suggestions
 const getSuggestions = async () => {
+  if (!currentUser.value) {
+    alert('You need to be logged in to get suggestions.')
+    return
+  }
+
+  if (!relationshipName.value || notes.value.length === 0) {
+    alert('Add some shared notes for this person first to get tailored suggestions.')
+    return
+  }
+
   isLoadingSuggestions.value = true
   try {
-    // Simulate API call - in real app, this would call your LLM API
-    await new Promise(resolve => setTimeout(resolve, 2000))
-    
-    // Mock suggestions based on event name and date
-    suggestions.value = [
-      `Consider personalized ${eventName.value.toLowerCase()} gifts`,
-      `Plan a surprise element for the celebration`,
-      `Send reminder messages to all collaborators`,
-      `Check weather forecast for outdoor activities`,
-      `Prepare a backup plan for venue issues`
-    ]
-    
-    // Show confetti animation would go here
+    // Aggregate shared notes into a single context string
+    const sharedNotes = notes.value
+      .map((n) => {
+        const titlePart = n.title ? `${n.title}: ` : ''
+        return `${titlePart}${n.content}`
+      })
+      .join('\n\n')
+
+    const context = {
+      sharedNotes,
+      personName: relationshipName.value,
+      occasionName: eventName.value,
+      occasionDate: eventDate.value,
+      daysRemaining: remainingDays.value,
+      occasionId: route.params.id,
+      collaborators: collaborators.value.map((c) => ({
+        id: c.id,
+        name: c.name,
+        status: c.status,
+      })),
+    }
+
+    const result = await suggestionEngineApi.generateGiftSuggestions(
+      currentUser.value,
+      context
+    )
+
+    // Backend already flattens each suggestion into a single string
+    suggestions.value = result.map((s) => s.content).slice(0, 3)
   } catch (error) {
     console.error('Error getting suggestions:', error)
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'Failed to get suggestions. Please try again.'
+    alert(message)
   } finally {
     isLoadingSuggestions.value = false
   }

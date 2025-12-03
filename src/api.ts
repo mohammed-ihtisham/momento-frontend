@@ -830,6 +830,61 @@ export const taskChecklistApi = {
 }
 
 /**
+ * SuggestionEngine API (backed by SuggestionEngineConcept)
+ */
+export const suggestionEngineApi = {
+  /**
+   * Generate 3 gift/gesture suggestions for a person using aggregated shared notes as context.
+   * POST /api/SuggestionEngine/generateGiftSuggestions
+   */
+  async generateGiftSuggestions(
+    owner: User,
+    context: Record<string, any>
+  ): Promise<
+    Array<{
+      suggestion: any
+      content: string
+    }>
+  > {
+    const response = await apiCall<{
+      suggestions?: Array<{ suggestion: any; content: string }>
+    }>('/SuggestionEngine/generateGiftSuggestions', {
+      owner,
+      context,
+    })
+
+    if (!response.suggestions || !Array.isArray(response.suggestions)) {
+      throw new Error('Failed to generate gift suggestions')
+    }
+
+    return response.suggestions
+  },
+
+  /**
+   * Get all previously generated suggestions for an owner.
+   * POST /api/SuggestionEngine/_getSuggestions
+   */
+  async getSuggestions(owner: User): Promise<
+    Array<{
+      suggestion: any
+      content: string
+      generatedAt: string | Date
+    }>
+  > {
+    const response = await apiCall<
+      Array<{
+        suggestion: any
+        content: string
+        generatedAt: string | Date
+      }>
+    >('/SuggestionEngine/_getSuggestions', {
+      owner,
+    })
+    return response
+  },
+}
+
+/**
  * Session management
  */
 export const sessionManager = {
