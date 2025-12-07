@@ -6,7 +6,7 @@ import {
   relationshipApi,
   profileApi,
   occasionsApi,
-  // collaboratorsApi,
+  collaboratorsApi,
 } from "../api";
 
 const router = useRouter();
@@ -49,9 +49,9 @@ const invitations = ref<
   }>
 >([]);
 
-// const pendingInvitationsCount = computed(
-//   () => invitations.value.filter((i) => i.status === "pending").length
-// );
+const pendingInvitationsCount = computed(
+  () => invitations.value.filter((i) => i.status === "pending").length
+);
 
 // Modal state
 const showCreateModal = ref(false);
@@ -96,61 +96,70 @@ const getUserFirstName = computed(() => {
 // Load incoming invitations for the current user from backend
 const loadInvitations = async () => {
   try {
-    // const backendInvites = await collaboratorsApi.getIncomingInvites()
-    // invitations.value = (backendInvites || [])
-    //   .filter((inv: any) => inv.status === 'pending')
-    //   .map((inv: any) => {
-    //     const rawInvite = inv.invite
-    //     const sender = inv.sender
-    //     const username =
-    //       typeof sender === 'string'
-    //         ? sender
-    //         : sender?.username || sender?.name || 'someone'
-    //     return {
-    //       id: String(rawInvite?.id ?? rawInvite ?? inv.id ?? ''),
-    //       invitePayload: rawInvite,
-    //       toUsername: username,
-    //       createdAt: inv.createdAt,
-    //       status: 'pending' as const,
-    //     }
-    //   })
+    const backendInvites = await collaboratorsApi.getIncomingInvites()
+    invitations.value = (backendInvites || [])
+      .filter((inv: any) => inv.status === 'pending')
+      .map((inv: any) => {
+        const rawInvite = inv.invite
+        const sender = inv.sender
+        const username =
+          typeof sender === 'string'
+            ? sender
+            : sender?.username || sender?.name || 'someone'
+        return {
+          id: String(rawInvite?.id ?? rawInvite ?? inv.id ?? ''),
+          invitePayload: rawInvite,
+          toUsername: username,
+          createdAt: inv.createdAt,
+          status: 'pending' as const,
+        }
+      })
   } catch (error) {
     console.error("Failed to load collaborator invitations:", error);
     invitations.value = [];
   }
 };
 
-// const handleAcceptInvite = async (
-//   invite: (typeof invitations.value)[number]
-// ) => {
-//   try {
-//     await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id);
-//     invitations.value = invitations.value.filter((i) => i.id !== invite.id);
-//   } catch (error: any) {
-//     console.error("Error accepting invitation:", error);
-//     alert(
-//       error instanceof Error
-//         ? error.message
-//         : "Failed to accept invitation. Please try again."
-//     );
-//   }
-// };
+const handleAcceptInvite = async (
+  invite: (typeof invitations.value)[number]
+) => {
+  try {
+    await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id);
+    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
+    
+    // Reload occasions to show the newly accepted occasion immediately
+    if (currentUser.value) {
+      try {
+        await loadOccasions();
+      } catch (error) {
+        console.error("Error reloading occasions after accepting invite:", error);
+      }
+    }
+  } catch (error: any) {
+    console.error("Error accepting invitation:", error);
+    alert(
+      error instanceof Error
+        ? error.message
+        : "Failed to accept invitation. Please try again."
+    );
+  }
+};
 
-// const handleDeclineInvite = async (
-//   invite: (typeof invitations.value)[number]
-// ) => {
-//   try {
-//     await collaboratorsApi.declineInvite(invite.id);
-//     invitations.value = invitations.value.filter((i) => i.id !== invite.id);
-//   } catch (error: any) {
-//     console.error("Error declining invitation:", error);
-//     alert(
-//       error instanceof Error
-//         ? error.message
-//         : "Failed to decline invitation. Please try again."
-//     );
-//   }
-// };
+const handleDeclineInvite = async (
+  invite: (typeof invitations.value)[number]
+) => {
+  try {
+    await collaboratorsApi.declineInvite(invite.id);
+    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
+  } catch (error: any) {
+    console.error("Error declining invitation:", error);
+    alert(
+      error instanceof Error
+        ? error.message
+        : "Failed to decline invitation. Please try again."
+    );
+  }
+};
 
 // Get unique person names for filter
 const relationshipNames = computed(() => {
@@ -603,7 +612,7 @@ onUnmounted(() => {
           <span class="logo-text">Momento</span>
         </div>
         <div class="navbar-right">
-          <!-- <div class="navbar-mail-wrapper">
+          <div class="navbar-mail-wrapper">
             <button
               @click.stop="showInvitesMenu = !showInvitesMenu"
               class="navbar-mail-button"
@@ -684,7 +693,7 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
-          </div> -->
+          </div>
           <div class="user-menu-wrapper">
             <button
               @click.stop="showUserMenu = !showUserMenu"

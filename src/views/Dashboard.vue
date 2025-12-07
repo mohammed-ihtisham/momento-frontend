@@ -6,7 +6,7 @@ import {
   sessionManager,
   relationshipApi,
   occasionsApi,
-  // collaboratorsApi,
+  collaboratorsApi,
 } from "../api";
 import { nameToSlug } from "../utils";
 
@@ -38,9 +38,9 @@ const invitations = ref<
   }>
 >([]);
 
-// const pendingInvitationsCount = computed(
-//   () => invitations.value.filter((i) => i.status === "pending").length
-// );
+const pendingInvitationsCount = computed(
+  () => invitations.value.filter((i) => i.status === "pending").length
+);
 
 // Drag and drop state
 const draggedIndex = ref<number | null>(null);
@@ -88,61 +88,109 @@ const hasMoreRelationships = computed(() => {
 // Load incoming invitations for the current user from backend
 const loadInvitations = async () => {
   try {
-    // const backendInvites = await collaboratorsApi.getIncomingInvites();
-    // invitations.value = (backendInvites || [])
-    //   .filter((inv: any) => inv.status === "pending")
-    //   .map((inv: any) => {
-    //     const rawInvite = inv.invite;
-    //     const sender = inv.sender;
-    //     const username =
-    //       typeof sender === "string"
-    //         ? sender
-    //         : sender?.username || sender?.name || "someone";
-    //     return {
-    //       id: String(rawInvite?.id ?? rawInvite ?? inv.id ?? ""),
-    //       invitePayload: rawInvite,
-    //       toUsername: username,
-    //       createdAt: inv.createdAt,
-    //       status: "pending" as const,
-    //     };
-    //   });
+    console.log("[Dashboard] Loading incoming invites...");
+    const backendInvites = await collaboratorsApi.getIncomingInvites();
+    console.log("[Dashboard] Received invites from API:", backendInvites);
+    
+    // Resolve sender usernames
+    const invitesWithUsernames = await Promise.all(
+      (backendInvites || [])
+        .filter((inv: any) => inv.status === "pending")
+        .map(async (inv: any) => {
+          const rawInvite = inv.invite;
+          const sender = inv.sender;
+          let username = "someone";
+          
+          // If sender is a string (user ID), look up the profile
+          if (typeof sender === "string") {
+            try {
+              const profile = await profileApi.getProfile({ id: sender, username: sender });
+              username = profile.username || profile.name || sender;
+            } catch (error) {
+              console.warn("[Dashboard] Failed to look up sender profile:", sender, error);
+              username = sender; // Fallback to showing the ID
+            }
+          } else if (sender?.username) {
+            username = sender.username;
+          } else if (sender?.name) {
+            username = sender.name;
+          }
+          
+          return {
+            id: String(rawInvite?.id ?? rawInvite ?? inv.id ?? ""),
+            invitePayload: rawInvite,
+            toUsername: username,
+            createdAt: inv.createdAt,
+            status: "pending" as const,
+          };
+        })
+    );
+    
+    invitations.value = invitesWithUsernames;
   } catch (error) {
     console.error("Failed to load collaborator invitations:", error);
     invitations.value = [];
   }
 };
 
-// const handleAcceptInvite = async (
-//   invite: (typeof invitations.value)[number]
-// ) => {
-//   try {
-//     await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id);
-//     invitations.value = invitations.value.filter((i) => i.id !== invite.id);
-//   } catch (error: any) {
-//     console.error("Error accepting invitation:", error);
-//     alert(
-//       error instanceof Error
-//         ? error.message
-//         : "Failed to accept invitation. Please try again."
-//     );
-//   }
-// };
+const handleAcceptInvite = async (
+  invite: (typeof invitations.value)[number]
+) => {
+  try {
+    await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id);
+    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
+    
+    // Reload occasions to show the newly accepted occasion immediately
+    if (currentUser.value) {
+      try {
+        const occasionsData = await occasionsApi.getOccasions(currentUser.value);
+        
+        // Enrich with relationship/relationshipType info
+        const enriched = occasionsData.map((occ) => {
+          const relationship = allRelationships.value.find(
+            (r) => r.name === occ.person
+          );
+          
+          return {
+            ...occ,
+            id: occ.occasion?.id || occ.occasionType + occ.person + occ.date,
+            name: occ.occasionType,
+            relationshipName: occ.person,
+            relationshipType: relationship?.relationshipType || "Unknown",
+            date: new Date(occ.date),
+          };
+        });
+        
+        occasions.value = enriched;
+      } catch (error) {
+        console.error("Error reloading occasions after accepting invite:", error);
+      }
+    }
+  } catch (error: any) {
+    console.error("Error accepting invitation:", error);
+    alert(
+      error instanceof Error
+        ? error.message
+        : "Failed to accept invitation. Please try again."
+    );
+  }
+};
 
-// const handleDeclineInvite = async (
-//   invite: (typeof invitations.value)[number]
-// ) => {
-//   try {
-//     await collaboratorsApi.declineInvite(invite.id);
-//     invitations.value = invitations.value.filter((i) => i.id !== invite.id);
-//   } catch (error: any) {
-//     console.error("Error declining invitation:", error);
-//     alert(
-//       error instanceof Error
-//         ? error.message
-//         : "Failed to decline invitation. Please try again."
-//     );
-//   }
-// };
+const handleDeclineInvite = async (
+  invite: (typeof invitations.value)[number]
+) => {
+  try {
+    await collaboratorsApi.declineInvite(invite.id);
+    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
+  } catch (error: any) {
+    console.error("Error declining invitation:", error);
+    alert(
+      error instanceof Error
+        ? error.message
+        : "Failed to decline invitation. Please try again."
+    );
+  }
+};
 
 // Helper function to normalize date to start of day for comparison
 const normalizeToDay = (date: Date): Date => {
@@ -565,7 +613,7 @@ onUnmounted(() => {
             <span class="logo-text">Momento</span>
           </div>
           <div class="navbar-right">
-            <!-- <div class="navbar-mail-wrapper">
+            <div class="navbar-mail-wrapper">
               <button
                 @click.stop="showInvitesMenu = !showInvitesMenu"
                 class="navbar-mail-button"
@@ -646,7 +694,7 @@ onUnmounted(() => {
                   </div>
                 </div>
               </div>
-            </div> -->
+            </div>
             <div class="user-menu-wrapper">
               <button
                 @click.stop="showUserMenu = !showUserMenu"

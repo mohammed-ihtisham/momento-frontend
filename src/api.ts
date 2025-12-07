@@ -342,12 +342,20 @@ export const collaboratorsApi = {
 
   /**
    * Remove collaborator by user object or raw ID.
+   * Requires occasionId to identify which occasion to remove the collaborator from.
    */
-  async removeCollaborator(user: User | string): Promise<void> {
+  async removeCollaborator(user: User | string, occasionId: any): Promise<void> {
     const userPayload =
       typeof user === "string" ? user : user.id || user.username || user;
+    
+    // Extract occasionId if it's an object
+    const occasionIdValue = typeof occasionId === "string" 
+      ? occasionId 
+      : occasionId?.id || occasionId?.occasion || occasionId;
+    
     await apiCall<{}>("/Collaborators/removeCollaborator", {
       user: userPayload,
+      occasionId: occasionIdValue,
     });
   },
 
@@ -427,11 +435,46 @@ export const collaboratorsApi = {
       createdAt: string;
     }>
   > {
+    // If no session is available, try to get user ID from sessionManager
+    const session = sessionManager.getSession();
+    const user = sessionManager.getUser();
+    const body: Record<string, any> = {};
+    
+    console.log("[getIncomingInvites] Session:", session);
+    console.log("[getIncomingInvites] User:", user);
+    
+    if (session) {
+      body.session = session;
+    } else if (user) {
+      // Fallback: pass user ID if no session
+      // User might have id, username, or be the ID string directly
+      const userId = typeof user === "string" ? user : user.id || user.username || user;
+      if (userId) {
+        body.user = userId;
+        console.log("[getIncomingInvites] Adding user ID to body:", userId);
+      } else {
+        console.warn("[getIncomingInvites] User object has no identifiable field:", user);
+      }
+    } else {
+      console.warn("[getIncomingInvites] No session or user available!");
+    }
+    
+    console.log("[getIncomingInvites] Request body:", body);
+    
     const response = await apiCall<{ invites?: any[] }>(
       "/Collaborators/_getIncomingInvites",
-      {}
+      body
     );
-    return (response.invites || []) as Array<{
+    
+    console.log("[getIncomingInvites] Full API response:", response);
+    console.log("[getIncomingInvites] Response.invites:", response.invites);
+    
+    // The response might be the invites array directly, or it might be wrapped in an object
+    const invites = response.invites || (Array.isArray(response) ? response : []);
+    
+    console.log("[getIncomingInvites] Parsed invites:", invites);
+    
+    return invites as Array<{
       invite: string;
       occasionId: any;
       sender: User;
@@ -453,9 +496,23 @@ export const collaboratorsApi = {
       updatedAt: string;
     }>
   > {
+    // Get session or user for authentication
+    const session = sessionManager.getSession();
+    const user = sessionManager.getUser();
+    const body: Record<string, any> = {};
+    
+    if (session) {
+      body.session = session;
+    } else if (user) {
+      const userId = typeof user === "string" ? user : user.id || user.username || user;
+      if (userId) {
+        body.user = userId;
+      }
+    }
+    
     const response = await apiCall<{ invites?: any[] }>(
       "/Collaborators/_getSentInvites",
-      {}
+      body
     );
     return (response.invites || []) as Array<{
       invite: string;
@@ -471,18 +528,44 @@ export const collaboratorsApi = {
    * Accept an invitation (current user must be the recipient).
    */
   async acceptInvite(invite: any): Promise<void> {
-    await apiCall<{ status: string }>("/Collaborators/acceptInvite", {
-      invite,
-    });
+    // If no session is available, try to get user ID from sessionManager
+    const session = sessionManager.getSession();
+    const user = sessionManager.getUser();
+    const body: Record<string, any> = { invite };
+    
+    if (session) {
+      body.session = session;
+    } else if (user) {
+      // Fallback: pass user ID if no session
+      const userId = typeof user === "string" ? user : user.id || user.username || user;
+      if (userId) {
+        body.user = userId;
+      }
+    }
+    
+    await apiCall<{ status: string }>("/Collaborators/acceptInvite", body);
   },
 
   /**
    * Decline an invitation (current user must be the recipient).
    */
   async declineInvite(invite: any): Promise<void> {
-    await apiCall<{ status: string }>("/Collaborators/declineInvite", {
-      invite,
-    });
+    // If no session is available, try to get user ID from sessionManager
+    const session = sessionManager.getSession();
+    const user = sessionManager.getUser();
+    const body: Record<string, any> = { invite };
+    
+    if (session) {
+      body.session = session;
+    } else if (user) {
+      // Fallback: pass user ID if no session
+      const userId = typeof user === "string" ? user : user.id || user.username || user;
+      if (userId) {
+        body.user = userId;
+      }
+    }
+    
+    await apiCall<{ status: string }>("/Collaborators/declineInvite", body);
   },
 
   /**
@@ -493,7 +576,16 @@ export const collaboratorsApi = {
       "/Collaborators/_getCollaboratorsForOccasion",
       { occasionId }
     );
-    return response.collaborators || [];
+    
+    console.log("[getCollaboratorsForOccasion] Full API response:", response);
+    console.log("[getCollaboratorsForOccasion] Response.collaborators:", response.collaborators);
+    
+    // The response might be the collaborators array directly, or it might be wrapped
+    const collaborators = response.collaborators || (Array.isArray(response) ? response : []);
+    
+    console.log("[getCollaboratorsForOccasion] Parsed collaborators:", collaborators);
+    
+    return collaborators;
   },
 };
 
@@ -535,13 +627,18 @@ export const relationshipApi = {
       relationshipType: string;
     }>
   > {
+    // Extract owner ID - backend expects a string ID, not an object
+    const ownerId = typeof owner === "string" 
+      ? owner 
+      : owner?.id || owner?.username || owner;
+    
     const response = await apiCall<
       Array<{
         relationship: any;
         name: string;
         relationshipType: string;
       }>
-    >("/Relationship/_getRelationships", { owner });
+    >("/Relationship/_getRelationships", { owner: ownerId });
     return response;
   },
 
@@ -585,8 +682,13 @@ export const notesApi = {
     title: string,
     content: string
   ): Promise<any> {
+    // Extract owner ID - backend expects a string ID, not an object
+    const ownerId = typeof owner === "string" 
+      ? owner 
+      : owner?.id || owner?.username || owner;
+    
     const response = await apiCall<ApiResponse<any>>("/Notes/createNote", {
-      owner,
+      owner: ownerId,
       relationship,
       title,
       content,
@@ -638,13 +740,18 @@ export const notesApi = {
       content: string;
     }>
   > {
+    // Extract owner ID - backend expects a string ID, not an object
+    const ownerId = typeof owner === "string" 
+      ? owner 
+      : owner?.id || owner?.username || owner;
+    
     const response = await apiCall<
       Array<{
         note: any;
         title: string;
         content: string;
       }>
-    >("/Notes/_getNotesByRelationship", { owner, relationship });
+    >("/Notes/_getNotesByRelationship", { owner: ownerId, relationship });
     return response;
   },
 };
@@ -813,6 +920,9 @@ export const occasionsApi = {
       date: string;
     }>
   > {
+    // Extract user ID from owner (might be User object or ID string)
+    const ownerId = typeof owner === "string" ? owner : owner.id || owner.username || owner;
+    
     const response = await apiCall<
       Array<{
         occasion: any;
@@ -820,8 +930,76 @@ export const occasionsApi = {
         occasionType: string;
         date: string;
       }>
-    >("/Occasion/_getOccasions", { owner });
+    >("/Occasion/_getOccasions", { owner: ownerId });
     return response;
+  },
+
+  /**
+   * Get a single occasion by ID
+   * POST /api/Occasion/_getOccasion
+   */
+  async getOccasion(occasionId: any): Promise<{
+    owner: string;
+    person: string;
+    occasionType: string;
+    date: string;
+  } | null> {
+    // Extract occasion ID, ensuring it's a plain string (not JSON-stringified)
+    let occasionIdValue: string;
+    if (typeof occasionId === "string") {
+      // Remove any surrounding quotes if present
+      occasionIdValue = occasionId.replace(/^["']|["']$/g, '');
+    } else {
+      occasionIdValue = String(occasionId?.id || occasionId?.occasion || occasionId);
+    }
+    
+    console.log("[getOccasion] Calling API with occasion ID:", occasionIdValue);
+    
+    const response = await apiCall<{ occasion?: {
+      owner: string;
+      person: string;
+      occasionType: string;
+      date: string;
+    } } | {
+      owner: string;
+      person: string;
+      occasionType: string;
+      date: string;
+    }>("/Occasion/_getOccasion", { occasion: occasionIdValue });
+    
+    console.log("[getOccasion] Full API response:", response);
+    console.log("[getOccasion] Response type:", typeof response);
+    console.log("[getOccasion] Response keys:", response ? Object.keys(response) : "null");
+    console.log("[getOccasion] Response stringified:", JSON.stringify(response, null, 2));
+    
+    // The response might be the occasion object directly, or wrapped in an object
+    if (response && typeof response === 'object') {
+      // Check if response has 'occasion' field (wrapped response)
+      if ('occasion' in response) {
+        const occasionValue = (response as any).occasion;
+        if (occasionValue && typeof occasionValue === 'object' && 'owner' in occasionValue) {
+          return occasionValue;
+        }
+        // If occasion is null, the occasion doesn't exist
+        if (occasionValue === null) {
+          console.warn("[getOccasion] Occasion not found (occasion is null)");
+          return null;
+        }
+      }
+      
+      // Check if response is the occasion object directly (has owner, person, etc.)
+      if ('owner' in response && 'person' in response && 'occasionType' in response && 'date' in response) {
+        return response as {
+          owner: string;
+          person: string;
+          occasionType: string;
+          date: string;
+        };
+      }
+    }
+    
+    console.warn("[getOccasion] Could not parse response, returning null");
+    return null;
   },
 
   /**
@@ -902,12 +1080,17 @@ export const tasksApi = {
       description: string;
     }>
   > {
+    // Extract owner ID - backend expects a string ID, not an object
+    const ownerId = typeof owner === "string" 
+      ? owner 
+      : owner?.id || owner?.username || owner;
+    
     const response = await apiCall<
       Array<{
         task: any;
         description: string;
       }>
-    >("/Task/_getTasks", { owner });
+    >("/Task/_getTasks", { owner: ownerId });
     return response;
   },
 };
@@ -965,12 +1148,17 @@ export const taskChecklistApi = {
       completed: boolean;
     }>
   > {
+    // Extract owner ID - backend expects a string ID, not an object
+    const ownerId = typeof owner === "string" 
+      ? owner 
+      : owner?.id || owner?.username || owner;
+    
     const response = await apiCall<
       Array<{
         task: any;
         completed: boolean;
       }>
-    >("/TaskChecklist/_getChecklist", { owner });
+    >("/TaskChecklist/_getChecklist", { owner: ownerId });
     return response;
   },
 
