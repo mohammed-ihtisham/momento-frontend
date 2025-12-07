@@ -462,9 +462,10 @@ const loadOccasion = async () => {
         
         if (inviteForThisOccasion && inviteForThisOccasion.sender) {
           // Found an invite - the sender is the owner
+          // Ensure we always resolve to a string or null to satisfy the ownerId type
           ownerId = typeof inviteForThisOccasion.sender === "string"
             ? inviteForThisOccasion.sender
-            : inviteForThisOccasion.sender?.id || inviteForThisOccasion.sender?.username || inviteForThisOccasion.sender;
+            : inviteForThisOccasion.sender?.id || inviteForThisOccasion.sender?.username || null;
           isOwner = ownerId === currentUserId;
           console.log("[loadOccasion] Found owner from incoming invite sender:", ownerId);
         } else {
@@ -510,9 +511,10 @@ const loadOccasion = async () => {
                 );
                 
                 if (inviteForOccasion && inviteForOccasion.sender) {
+                  // As above, make sure ownerId is always a string or null
                   ownerId = typeof inviteForOccasion.sender === "string"
                     ? inviteForOccasion.sender
-                    : inviteForOccasion.sender?.id || inviteForOccasion.sender?.username || inviteForOccasion.sender;
+                    : inviteForOccasion.sender?.id || inviteForOccasion.sender?.username || null;
                   isOwner = false;
                   console.log("[loadOccasion] Found owner from invite sender:", ownerId);
                 } else {
