@@ -11,6 +11,7 @@ import {
   taskChecklistApi,
   collaboratorsApi,
   suggestionEngineApi,
+  occasionNotesApi,
 } from "../api";
 
 const router = useRouter();
@@ -198,38 +199,75 @@ const notes = ref<
     editingContent?: string;
   }>
 >([]);
-const occasionNotesStorageKey = ref<string | null>(null);
 const newNoteTitle = ref("");
 const newNoteContent = ref("");
 
-// Helper to build a stable storage key for this user's occasion notes
-// Uses the occasion route ID (string) so it stays stable across reloads.
-const buildOccasionNotesStorageKey = (
-  user: any,
-  occasionRouteId: string | string[]
-) => {
-  const userPart = user?.id || user?.username || "unknown";
-  const occasionPart = Array.isArray(occasionRouteId)
-    ? occasionRouteId.join("_")
-    : occasionRouteId || "unknown_occasion";
-  return `momento_occasion_notes_${userPart}_${occasionPart}`;
+const normalizeUserId = (user: any) => {
+  if (!user) return null;
+  return typeof user === "string" ? user : user?.id || user?.username || user;
 };
 
-// Persist which backend notes are attached to this occasion's Shared Notes
-const persistOccasionNotesSelection = () => {
-  if (!occasionNotesStorageKey.value) return;
+const resolveNoteAuthorName = (authorId: any) => {
+  const normalizedAuthorId = normalizeUserId(authorId);
+  const currentId = normalizeUserId(currentUser.value);
+
+  if (
+    normalizedAuthorId &&
+    currentId &&
+    String(normalizedAuthorId) === String(currentId)
+  ) {
+    return userProfile.value?.name || getUserFirstName.value || "You";
+  }
+
+  const collaborator = collaborators.value.find(
+    (c) => String(c.id) === String(normalizedAuthorId)
+  );
+  if (collaborator) {
+    return collaborator.name;
+  }
+
+  return normalizedAuthorId || "Unknown";
+};
+
+// Load shared occasion notes from backend
+const loadOccasionNotes = async (occasionId: any) => {
   try {
-    const payload = notes.value.map((n) => ({
-      noteId: n.noteRef?.id || null,
-      title: n.title || null,
-      source: n.source,
-    }));
-    localStorage.setItem(
-      occasionNotesStorageKey.value,
-      JSON.stringify(payload)
+    const occasionIdValue =
+      typeof occasionId === "string"
+        ? occasionId
+        : occasionId?.id || occasionId?.occasion || occasionId;
+
+    if (!occasionIdValue) {
+      notes.value = [];
+      return;
+    }
+
+    const backendNotes = await occasionNotesApi.getNotesByOccasion(
+      occasionIdValue
     );
+
+    notes.value = backendNotes.map((n) => {
+      const rawNote = n as any;
+      const noteId =
+        rawNote?.note ||
+        rawNote?._id ||
+        rawNote?.id ||
+        `${Date.now().toString()}-${Math.random().toString(36).slice(2)}`;
+
+      return {
+        id: String(noteId),
+        content: rawNote?.content,
+        assignees: [],
+        source: "occasion" as const,
+        createdBy: resolveNoteAuthorName(rawNote?.author),
+        title: rawNote?.title,
+        noteRef: rawNote?.note ?? rawNote?._id ?? null,
+        isEditing: false,
+      };
+    });
   } catch (error) {
-    console.error("Failed to persist occasion shared notes selection:", error);
+    console.error("Error loading occasion shared notes:", error);
+    notes.value = [];
   }
 };
 
@@ -255,20 +293,19 @@ const showImportNotes = ref(false);
 // to this occasion's Shared Notes list (regardless of how they were added).
 const availableRelationshipNotes = computed(() =>
   relationshipNotes.value.filter((relNote) => {
-    const relNoteId = relNote.note?.id;
     const relTitle = relNote.title;
+    const relContent = relNote.content;
 
     return !notes.value.some((n) => {
-      const noteId = n.noteRef?.id;
       const noteTitle = n.title;
+      const noteContent = n.content;
 
-      if (noteId && relNoteId) {
-        return noteId === relNoteId;
+      if (noteTitle && relTitle && noteTitle === relTitle) {
+        return true;
       }
 
-      // Fallback: match by title when IDs are missing
-      if (noteTitle && relTitle) {
-        return noteTitle === relTitle;
+      if (noteContent && relContent && noteContent === relContent) {
+        return true;
       }
 
       return false;
@@ -410,13 +447,18 @@ const loadOccasion = async () => {
 
   try {
     isLoading.value = true;
-    
+
     // Get occasion details including owner
     const occasionId = route.params.id;
-    let occasionDetails: { owner: string; person: string; occasionType: string; date: string } | null = null;
+    let occasionDetails: {
+      owner: string;
+      person: string;
+      occasionType: string;
+      date: string;
+    } | null = null;
     let isOwner = false;
     let ownerId: string | null = null;
-    
+
     // First, get all occasions to find the occasion
     const allOccasions = await occasionsApi.getOccasions(currentUser.value);
     const found = allOccasions.find(
@@ -424,7 +466,7 @@ const loadOccasion = async () => {
         occ.occasion?.id === occasionId ||
         JSON.stringify(occ.occasion) === occasionId
     );
-    
+
     // Try to get occasion details from API (this includes owner)
     try {
       occasionDetails = await occasionsApi.getOccasion(occasionId);
@@ -432,93 +474,125 @@ const loadOccasion = async () => {
     } catch (error) {
       console.error("[loadOccasion] Error getting occasion details:", error);
     }
-    
+
     // Determine owner and user role
-    const currentUserId = typeof currentUser.value === "string" 
-      ? currentUser.value 
-      : currentUser.value?.id || currentUser.value?.username || currentUser.value;
-    
+    const currentUserId =
+      typeof currentUser.value === "string"
+        ? currentUser.value
+        : currentUser.value?.id ||
+          currentUser.value?.username ||
+          currentUser.value;
+
     if (occasionDetails && occasionDetails.owner) {
       isOwner = occasionDetails.owner === currentUserId;
       ownerId = occasionDetails.owner;
-      
+
       console.log("[loadOccasion] Occasion owner:", ownerId);
       console.log("[loadOccasion] Current user:", currentUserId);
       console.log("[loadOccasion] Is owner:", isOwner);
     } else {
       // Fallback: If getOccasion failed, try to determine owner from incoming invites
       // The sender of an invite for this occasion should be the owner
-      console.warn("[loadOccasion] getOccasion returned null or no owner, trying to determine owner from invites");
-      
+      console.warn(
+        "[loadOccasion] getOccasion returned null or no owner, trying to determine owner from invites"
+      );
+
       try {
         // Try to get owner from incoming invites (pending or accepted)
         const incomingInvites = await collaboratorsApi.getIncomingInvites();
         const inviteForThisOccasion = (incomingInvites || []).find(
           (inv: any) => {
-            const invOccasionId = inv.occasionId?.id || inv.occasionId?.occasion || inv.occasionId;
+            const invOccasionId =
+              inv.occasionId?.id || inv.occasionId?.occasion || inv.occasionId;
             return String(invOccasionId) === String(occasionId);
           }
         );
-        
+
         if (inviteForThisOccasion && inviteForThisOccasion.sender) {
           // Found an invite - the sender is the owner
           // Ensure we always resolve to a string or null to satisfy the ownerId type
-          ownerId = typeof inviteForThisOccasion.sender === "string"
-            ? inviteForThisOccasion.sender
-            : inviteForThisOccasion.sender?.id || inviteForThisOccasion.sender?.username || null;
+          ownerId =
+            typeof inviteForThisOccasion.sender === "string"
+              ? inviteForThisOccasion.sender
+              : inviteForThisOccasion.sender?.id ||
+                inviteForThisOccasion.sender?.username ||
+                null;
           isOwner = ownerId === currentUserId;
-          console.log("[loadOccasion] Found owner from incoming invite sender:", ownerId);
+          console.log(
+            "[loadOccasion] Found owner from incoming invite sender:",
+            ownerId
+          );
         } else {
           // Try sent invites - if user sent an invite for this occasion, they are the owner
           try {
             const sentInvites = await collaboratorsApi.getSentInvites();
             const sentInviteForOccasion = (sentInvites || []).find(
               (inv: any) => {
-                const invOccasionId = inv.occasionId?.id || inv.occasionId?.occasion || inv.occasionId;
+                const invOccasionId =
+                  inv.occasionId?.id ||
+                  inv.occasionId?.occasion ||
+                  inv.occasionId;
                 return String(invOccasionId) === String(occasionId);
               }
             );
-            
+
             if (sentInviteForOccasion) {
               // User sent an invite, so they are the owner
               isOwner = true;
               ownerId = currentUserId;
-              console.log("[loadOccasion] Found owner from sent invite - user is owner");
+              console.log(
+                "[loadOccasion] Found owner from sent invite - user is owner"
+              );
             } else {
               // No invite found - check if user is a collaborator by checking collaborators list
-              console.warn("[loadOccasion] No invite found, checking if user is collaborator");
-              
-              const collaborators = await collaboratorsApi.getCollaboratorsForOccasion(occasionId);
-              const isCollaborator = (collaborators || []).some(
-                (c: any) => {
-                  const cId = c.id || c._id || c.user || c;
-                  return String(cId) === String(currentUserId);
-                }
+              console.warn(
+                "[loadOccasion] No invite found, checking if user is collaborator"
               );
-              
+
+              const collaborators =
+                await collaboratorsApi.getCollaboratorsForOccasion(occasionId);
+              const isCollaborator = (collaborators || []).some((c: any) => {
+                const cId = c.id || c._id || c.user || c;
+                return String(cId) === String(currentUserId);
+              });
+
               if (isCollaborator) {
                 // User is a collaborator, so they're not the owner
                 // Try to get owner from the invite - the sender of the invite is the owner
-                console.warn("[loadOccasion] User is a collaborator, trying to get owner from invite");
-                
+                console.warn(
+                  "[loadOccasion] User is a collaborator, trying to get owner from invite"
+                );
+
                 // Get all incoming invites to find the one for this occasion
-                const allIncomingInvites = await collaboratorsApi.getIncomingInvites();
+                const allIncomingInvites =
+                  await collaboratorsApi.getIncomingInvites();
                 const inviteForOccasion = (allIncomingInvites || []).find(
                   (inv: any) => {
-                    const invOccasionId = inv.occasionId?.id || inv.occasionId?.occasion || inv.occasionId;
+                    const invOccasionId =
+                      inv.occasionId?.id ||
+                      inv.occasionId?.occasion ||
+                      inv.occasionId;
                     return String(invOccasionId) === String(occasionId);
                   }
                 );
-                
+
                 if (inviteForOccasion && inviteForOccasion.sender) {
                   // As above, make sure ownerId is always a string or null
-                  ownerId = typeof inviteForOccasion.sender === "string"
-                    ? inviteForOccasion.sender
-                    : inviteForOccasion.sender?.id || inviteForOccasion.sender?.username || null;
+                  ownerId =
+                    typeof inviteForOccasion.sender === "string"
+                      ? inviteForOccasion.sender
+                      : inviteForOccasion.sender?.id ||
+                        inviteForOccasion.sender?.username ||
+                        null;
                   isOwner = false;
-                  console.log("[loadOccasion] Found owner from invite sender:", ownerId);
+                  console.log(
+                    "[loadOccasion] Found owner from invite sender:",
+                    ownerId
+                  );
                 } else {
-                  console.error("[loadOccasion] Cannot determine owner - tasks/notes may not load correctly");
+                  console.error(
+                    "[loadOccasion] Cannot determine owner - tasks/notes may not load correctly"
+                  );
                   isOwner = false;
                   ownerId = null;
                 }
@@ -526,20 +600,21 @@ const loadOccasion = async () => {
                 // User is not a collaborator, so they must be the owner
                 isOwner = true;
                 ownerId = currentUserId;
-                console.log("[loadOccasion] User appears to be owner (not in collaborators list)");
+                console.log(
+                  "[loadOccasion] User appears to be owner (not in collaborators list)"
+                );
               }
             }
           } catch (error) {
             console.error("[loadOccasion] Error getting sent invites:", error);
             // Fallback: check if user is a collaborator
-            const collaborators = await collaboratorsApi.getCollaboratorsForOccasion(occasionId);
-            const isCollaborator = (collaborators || []).some(
-              (c: any) => {
-                const cId = c.id || c._id || c.user || c;
-                return String(cId) === String(currentUserId);
-              }
-            );
-            
+            const collaborators =
+              await collaboratorsApi.getCollaboratorsForOccasion(occasionId);
+            const isCollaborator = (collaborators || []).some((c: any) => {
+              const cId = c.id || c._id || c.user || c;
+              return String(cId) === String(currentUserId);
+            });
+
             if (isCollaborator) {
               isOwner = false;
               ownerId = null;
@@ -550,14 +625,19 @@ const loadOccasion = async () => {
           }
         }
       } catch (error) {
-        console.error("[loadOccasion] Error trying to determine owner from invites:", error);
+        console.error(
+          "[loadOccasion] Error trying to determine owner from invites:",
+          error
+        );
         // Last resort: assume current user is owner
         isOwner = true;
         ownerId = currentUserId;
-        console.warn("[loadOccasion] Using current user as owner fallback due to error");
+        console.warn(
+          "[loadOccasion] Using current user as owner fallback due to error"
+        );
       }
     }
-    
+
     // Store owner info for use in other functions
     occasionOwnerId.value = ownerId;
     isCurrentUserOwner.value = isOwner;
@@ -568,141 +648,84 @@ const loadOccasion = async () => {
       eventDate.value = found.date;
       relationshipName.value = found.person;
 
-      // Prepare storage key for this occasion's shared notes selection
-      // based on the route param ID so it's consistent across sessions.
-      occasionNotesStorageKey.value = buildOccasionNotesStorageKey(
-        currentUser.value,
-        route.params.id
-      );
-
       // Load relationship object and existing notes for this person
       // If current user is a collaborator, load from owner instead
       try {
         // Ensure we pass a proper User object format
         // If we don't know the owner and user is a collaborator, we can't load owner's data
         if (!isOwner && !ownerId) {
-          console.error("[loadOccasion] Cannot load owner's data - owner unknown and user is collaborator");
+          console.error(
+            "[loadOccasion] Cannot load owner's data - owner unknown and user is collaborator"
+          );
           // Skip loading relationships/notes/tasks if we can't determine owner
           relationship.value = null;
           relationshipNotes.value = [];
           tasks.value = [];
         } else {
           // Extract user ID - backend expects a string ID, not an object
-          const userToLoadFrom = isOwner 
-            ? currentUser.value 
-            : (ownerId ? ownerId : currentUser.value);
-          
+          const userToLoadFrom = isOwner
+            ? currentUser.value
+            : ownerId
+            ? ownerId
+            : currentUser.value;
+
           // Convert to string ID if it's an object
-          const userIdToLoad = typeof userToLoadFrom === "string" 
-            ? userToLoadFrom 
-            : userToLoadFrom?.id || userToLoadFrom?.username || userToLoadFrom;
-          
-          console.log("[loadOccasion] Loading relationships from user ID:", userIdToLoad);
-        
-        const relationshipsData = await relationshipApi.getRelationships(
-          userIdToLoad
-        );
+          const userIdToLoad =
+            typeof userToLoadFrom === "string"
+              ? userToLoadFrom
+              : userToLoadFrom?.id ||
+                userToLoadFrom?.username ||
+                userToLoadFrom;
 
-        allRelationships.value = relationshipsData.map((r) => ({
-          id: r.relationship?.id || r.name,
-          name: r.name,
-          relationshipType: r.relationshipType,
-          relationship: r.relationship,
-        }));
-
-        const matchingRelationship = allRelationships.value.find(
-          (r) => r.name === found.person
-        );
-
-        if (matchingRelationship) {
-          relationship.value = matchingRelationship.relationship;
-          relationshipName.value = matchingRelationship.name;
-
-          try {
-            isLoadingRelationshipNotes.value = true;
-            // Load notes from the owner if current user is a collaborator
-            const notesData = await notesApi.getNotesByRelationship(
-              userIdToLoad,
-              matchingRelationship.relationship
-            );
-            relationshipNotes.value = notesData;
-
-            // Initialize Shared Notes from any previously saved selection
-            notes.value = [];
-            if (occasionNotesStorageKey.value) {
-              try {
-                const stored = localStorage.getItem(
-                  occasionNotesStorageKey.value
-                );
-                if (stored) {
-                  const parsed: Array<{
-                    noteId: any | null;
-                    title: string | null;
-                    source: "relationship" | "occasion";
-                  }> = JSON.parse(stored);
-
-                  const createdBy =
-                    userProfile.value?.name || getUserFirstName.value || "You";
-
-                  const attachedNotes: typeof notes.value = [];
-                  for (const entry of parsed) {
-                    let backendNote = null as (typeof notesData)[number] | null;
-
-                    if (entry.noteId) {
-                      backendNote =
-                        notesData.find((n) => n.note?.id === entry.noteId) ||
-                        null;
-                    }
-
-                    if (!backendNote && entry.title) {
-                      backendNote =
-                        notesData.find((n) => n.title === entry.title) || null;
-                    }
-
-                    if (!backendNote) continue;
-
-                    attachedNotes.push({
-                      id:
-                        backendNote.note?.id ||
-                        backendNote.title ||
-                        Date.now().toString(),
-                      content: backendNote.content,
-                      assignees: [],
-                      source: entry.source,
-                      createdBy,
-                      title: backendNote.title,
-                      noteRef: backendNote.note,
-                      isEditing: false,
-                    });
-                  }
-
-                  notes.value = attachedNotes;
-                }
-              } catch (error) {
-                console.error(
-                  "Error restoring saved occasion shared notes:",
-                  error
-                );
-                notes.value = [];
-              }
-            }
-          } catch (error) {
-            console.error(
-              "Error loading relationship notes for occasion:",
-              error
-            );
-            relationshipNotes.value = [];
-          } finally {
-            isLoadingRelationshipNotes.value = false;
-          }
-        } else {
-          console.warn(
-            "No matching relationship found for person:",
-            found.person
+          console.log(
+            "[loadOccasion] Loading relationships from user ID:",
+            userIdToLoad
           );
-          relationship.value = null;
-          relationshipNotes.value = [];
-        }
+
+          const relationshipsData = await relationshipApi.getRelationships(
+            userIdToLoad
+          );
+
+          allRelationships.value = relationshipsData.map((r) => ({
+            id: r.relationship?.id || r.name,
+            name: r.name,
+            relationshipType: r.relationshipType,
+            relationship: r.relationship,
+          }));
+
+          const matchingRelationship = allRelationships.value.find(
+            (r) => r.name === found.person
+          );
+
+          if (matchingRelationship) {
+            relationship.value = matchingRelationship.relationship;
+            relationshipName.value = matchingRelationship.name;
+
+            try {
+              isLoadingRelationshipNotes.value = true;
+              // Load notes from the owner if current user is a collaborator
+              const notesData = await notesApi.getNotesByRelationship(
+                userIdToLoad,
+                matchingRelationship.relationship
+              );
+              relationshipNotes.value = notesData;
+            } catch (error) {
+              console.error(
+                "Error loading relationship notes for occasion:",
+                error
+              );
+              relationshipNotes.value = [];
+            } finally {
+              isLoadingRelationshipNotes.value = false;
+            }
+          } else {
+            console.warn(
+              "No matching relationship found for person:",
+              found.person
+            );
+            relationship.value = null;
+            relationshipNotes.value = [];
+          }
         }
       } catch (error) {
         console.error("Error loading relationships for occasion:", error);
@@ -713,25 +736,38 @@ const loadOccasion = async () => {
       // Load collaborators for this occasion (without sent invites - loaded on demand)
       await loadOccasionCollaborators(found.occasion, false);
 
+      // Load shared occasion notes from backend
+      await loadOccasionNotes(found.occasion);
+
       // Load planning checklist tasks from owner (if collaborator) or current user (if owner)
       try {
         // If we don't know the owner and user is a collaborator, skip loading tasks
         if (!isOwner && !ownerId) {
-          console.error("[loadOccasion] Cannot load owner's tasks - owner unknown and user is collaborator");
+          console.error(
+            "[loadOccasion] Cannot load owner's tasks - owner unknown and user is collaborator"
+          );
           tasks.value = [];
         } else {
           // Extract user ID - backend expects a string ID, not an object
-          const userToLoadTasksFrom = isOwner 
-            ? currentUser.value 
-            : (ownerId ? ownerId : currentUser.value);
-          
+          const userToLoadTasksFrom = isOwner
+            ? currentUser.value
+            : ownerId
+            ? ownerId
+            : currentUser.value;
+
           // Convert to string ID if it's an object
-          const userIdToLoadTasks = typeof userToLoadTasksFrom === "string" 
-            ? userToLoadTasksFrom 
-            : userToLoadTasksFrom?.id || userToLoadTasksFrom?.username || userToLoadTasksFrom;
-          
-          console.log("[loadOccasion] Loading tasks from user ID:", userIdToLoadTasks);
-          
+          const userIdToLoadTasks =
+            typeof userToLoadTasksFrom === "string"
+              ? userToLoadTasksFrom
+              : userToLoadTasksFrom?.id ||
+                userToLoadTasksFrom?.username ||
+                userToLoadTasksFrom;
+
+          console.log(
+            "[loadOccasion] Loading tasks from user ID:",
+            userIdToLoadTasks
+          );
+
           if (userIdToLoadTasks) {
             const [taskList, checklist] = await Promise.all([
               tasksApi.getTasks(userIdToLoadTasks),
@@ -752,7 +788,10 @@ const loadOccasion = async () => {
                 savedPriorities = JSON.parse(stored);
               }
             } catch (error) {
-              console.error("Error loading task priorities from localStorage:", error);
+              console.error(
+                "Error loading task priorities from localStorage:",
+                error
+              );
             }
 
             // Only show tasks that are actually in the checklist
@@ -765,12 +804,15 @@ const loadOccasion = async () => {
                   name: t.description,
                   completed: !!checklistMap.get(t.task),
                   // Priority is stored in localStorage since backend doesn't support it
-                  priority: (savedPriorities[taskIdStr] || "medium") as "low" | "medium" | "high",
+                  priority: (savedPriorities[taskIdStr] || "medium") as
+                    | "low"
+                    | "medium"
+                    | "high",
                   assignees: [],
                   isEditing: false,
                 };
               });
-            
+
             // Save priorities back to localStorage to ensure they persist
             saveTaskPriorities();
           } else {
@@ -809,15 +851,18 @@ const toggleTask = async (taskId: string) => {
 
   try {
     // Use owner's account for task operations so all collaborators see the changes
-    const taskOwner = isCurrentUserOwner.value 
-      ? currentUser.value 
-      : (occasionOwnerId.value ? occasionOwnerId.value : currentUser.value);
-    
+    const taskOwner = isCurrentUserOwner.value
+      ? currentUser.value
+      : occasionOwnerId.value
+      ? occasionOwnerId.value
+      : currentUser.value;
+
     // Extract user ID if it's an object
-    const taskOwnerId = typeof taskOwner === "string" 
-      ? taskOwner 
-      : taskOwner?.id || taskOwner?.username || taskOwner;
-    
+    const taskOwnerId =
+      typeof taskOwner === "string"
+        ? taskOwner
+        : taskOwner?.id || taskOwner?.username || taskOwner;
+
     if (task.completed) {
       await taskChecklistApi.markComplete(taskOwnerId, taskId);
     } else {
@@ -846,22 +891,27 @@ const addTask = async () => {
     // Determine which user should own the task
     // If current user is a collaborator, tasks should be added to the owner's account
     // so all collaborators can see them
-    const taskOwner = isCurrentUserOwner.value 
-      ? currentUser.value 
-      : (occasionOwnerId.value ? occasionOwnerId.value : currentUser.value);
-    
+    const taskOwner = isCurrentUserOwner.value
+      ? currentUser.value
+      : occasionOwnerId.value
+      ? occasionOwnerId.value
+      : currentUser.value;
+
     // Extract user ID if it's an object
-    const taskOwnerId = typeof taskOwner === "string" 
-      ? taskOwner 
-      : taskOwner?.id || taskOwner?.username || taskOwner;
-    
-    console.log("[addTask] Creating task for owner:", taskOwnerId, "isOwner:", isCurrentUserOwner.value);
-    
-    // 1) Create the underlying Task
-    const createdTask = await tasksApi.createTask(
+    const taskOwnerId =
+      typeof taskOwner === "string"
+        ? taskOwner
+        : taskOwner?.id || taskOwner?.username || taskOwner;
+
+    console.log(
+      "[addTask] Creating task for owner:",
       taskOwnerId,
-      description
+      "isOwner:",
+      isCurrentUserOwner.value
     );
+
+    // 1) Create the underlying Task
+    const createdTask = await tasksApi.createTask(taskOwnerId, description);
     const taskId = String(
       (createdTask as any).id ?? (createdTask as any).task ?? createdTask
     );
@@ -878,7 +928,7 @@ const addTask = async () => {
       for (const task of tasks.value) {
         priorityMap.set(task.id, task.priority);
       }
-      
+
       const [taskList, checklist] = await Promise.all([
         tasksApi.getTasks(taskOwnerId),
         taskChecklistApi.getChecklist(taskOwnerId),
@@ -898,7 +948,10 @@ const addTask = async () => {
           savedPriorities = JSON.parse(stored);
         }
       } catch (error) {
-        console.error("Error loading task priorities from localStorage:", error);
+        console.error(
+          "Error loading task priorities from localStorage:",
+          error
+        );
       }
 
       // Only show tasks that are actually in the checklist
@@ -907,10 +960,13 @@ const addTask = async () => {
         .map((t) => {
           const taskIdStr = String(t.task);
           // Use saved priority, or the new task's priority if it's the one we just added, or preserved priority, or default to medium
-          const priority = taskIdStr === taskId 
-            ? newTaskPriority.value 
-            : (priorityMap.get(taskIdStr) || savedPriorities[taskIdStr] || "medium");
-          
+          const priority =
+            taskIdStr === taskId
+              ? newTaskPriority.value
+              : priorityMap.get(taskIdStr) ||
+                savedPriorities[taskIdStr] ||
+                "medium";
+
           return {
             id: taskIdStr,
             name: t.description,
@@ -920,7 +976,7 @@ const addTask = async () => {
             isEditing: false,
           };
         });
-      
+
       // Save priorities back to localStorage to ensure they persist
       saveTaskPriorities();
     } catch (error) {
@@ -958,15 +1014,18 @@ const deleteTask = async (taskId: string) => {
 
   try {
     // Use owner's account for task operations so all collaborators see the changes
-    const taskOwner = isCurrentUserOwner.value 
-      ? currentUser.value 
-      : (occasionOwnerId.value ? occasionOwnerId.value : currentUser.value);
-    
+    const taskOwner = isCurrentUserOwner.value
+      ? currentUser.value
+      : occasionOwnerId.value
+      ? occasionOwnerId.value
+      : currentUser.value;
+
     // Extract user ID if it's an object
-    const taskOwnerId = typeof taskOwner === "string" 
-      ? taskOwner 
-      : taskOwner?.id || taskOwner?.username || taskOwner;
-    
+    const taskOwnerId =
+      typeof taskOwner === "string"
+        ? taskOwner
+        : taskOwner?.id || taskOwner?.username || taskOwner;
+
     await taskChecklistApi.removeTask(taskOwnerId, taskId);
     await tasksApi.deleteTask(taskId);
   } catch (error) {
@@ -989,14 +1048,14 @@ const startEditingTask = (task: any) => {
 // Save task priorities to localStorage
 const saveTaskPriorities = () => {
   if (!occasionOwnerId.value || !route.params.id) return;
-  
+
   const taskPrioritiesKey = `occasion-tasks-priorities-${route.params.id}-${occasionOwnerId.value}`;
   const prioritiesToSave: Record<string, "low" | "medium" | "high"> = {};
-  
+
   for (const task of tasks.value) {
     prioritiesToSave[task.id] = task.priority;
   }
-  
+
   try {
     localStorage.setItem(taskPrioritiesKey, JSON.stringify(prioritiesToSave));
   } catch (error) {
@@ -1039,9 +1098,9 @@ const cancelTaskEdit = (task: any) => {
   task.isEditing = false;
 };
 
-// Add new note (occasion‑specific, persisted as a relationship note when possible)
+// Add new shared occasion note (stored in backend)
 const addNote = async () => {
-  if (!newNoteContent.value.trim()) return;
+  if (!newNoteContent.value.trim() || !route.params.id) return;
 
   const content = newNoteContent.value.trim();
   const title =
@@ -1049,87 +1108,27 @@ const addNote = async () => {
     eventName.value?.trim() ||
     relationshipName.value ||
     "Occasion note";
-  const createdBy = userProfile.value?.name || getUserFirstName.value || "You";
 
-  let backendNote: any | null = null;
-
-  // If we know the underlying relationship, persist this as a real note.
-  // If this fails, do NOT add a local-only note so the UI always matches backend.
-  if (currentUser.value && relationship.value) {
-    try {
-      // Determine which user should own the note
-      // If current user is a collaborator, notes should be added to the owner's account
-      // so all collaborators can see them
-      const noteOwner = isCurrentUserOwner.value 
-        ? currentUser.value 
-        : (occasionOwnerId.value ? occasionOwnerId.value : currentUser.value);
-      
-      // Extract user ID if it's an object
-      const noteOwnerId = typeof noteOwner === "string" 
-        ? noteOwner 
-        : noteOwner?.id || noteOwner?.username || noteOwner;
-      
-      console.log("[addNote] Creating note for owner:", noteOwnerId, "isOwner:", isCurrentUserOwner.value);
-      
-      backendNote = await notesApi.createNote(
-        noteOwnerId,
-        relationship.value,
-        title,
-        content
-      );
-    } catch (error) {
-      console.error("Error creating occasion note in backend:", error);
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to create note. Please try a different title.";
-      alert(message);
+  try {
+    if (!currentUser.value) {
+      alert("You must be logged in to create a note.");
       return;
     }
-  } else {
-    // No relationship context – we can't persist to backend meaningfully.
-    // For now, don't create a phantom note that will disappear on refresh.
-    alert(
-      "Cannot attach this note because the person for this occasion could not be found."
+    await occasionNotesApi.createNote(
+      currentUser.value,
+      route.params.id,
+      title,
+      content
     );
-    return;
-  }
-
-  notes.value.push({
-    id: backendNote?.id || Date.now().toString(),
-    content,
-    assignees: [],
-    source: "occasion",
-    createdBy,
-    title,
-    noteRef: backendNote || null,
-    isEditing: false,
-  });
-
-  // Persist updated selection of notes attached to this occasion
-  persistOccasionNotesSelection();
-
-  // Refresh relationship notes from backend so state is in sync
-  try {
-    if (relationship.value) {
-      // Use owner's account to load notes so collaborators see all notes
-      const noteOwner = isCurrentUserOwner.value 
-        ? currentUser.value 
-        : (occasionOwnerId.value ? occasionOwnerId.value : currentUser.value);
-      
-      // Extract user ID if it's an object
-      const noteOwnerId = typeof noteOwner === "string" 
-        ? noteOwner 
-        : noteOwner?.id || noteOwner?.username || noteOwner;
-      
-      const notesData = await notesApi.getNotesByRelationship(
-        noteOwnerId,
-        relationship.value
-      );
-      relationshipNotes.value = notesData;
-    }
+    await loadOccasionNotes(route.params.id);
   } catch (error) {
-    console.error("Error refreshing relationship notes after create:", error);
+    console.error("Error creating occasion note in backend:", error);
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to create note. Please try a different title.";
+    alert(message);
+    return;
   }
 
   newNoteTitle.value = "";
@@ -1160,9 +1159,22 @@ const handleCreateOccasionNote = async () => {
 };
 
 // Delete note (only removes from this occasion view; underlying person note stays)
-const deleteNote = (noteId: string) => {
+const deleteNote = async (noteId: string) => {
+  const previousNotes = [...notes.value];
   notes.value = notes.value.filter((n) => n.id !== noteId);
-  persistOccasionNotesSelection();
+
+  try {
+    await occasionNotesApi.deleteNote(noteId);
+    await loadOccasionNotes(route.params.id);
+  } catch (error: any) {
+    console.error("Error deleting shared occasion note:", error);
+    notes.value = previousNotes;
+    alert(
+      error instanceof Error
+        ? error.message
+        : "Failed to delete note. Please try again."
+    );
+  }
 };
 
 // Start editing note
@@ -1172,12 +1184,39 @@ const startEditingNote = (note: any) => {
 };
 
 // Save note edit
-const saveNoteEdit = (note: any) => {
-  if (note.editingContent !== undefined) {
-    note.content = note.editingContent.trim();
-    note.editingContent = undefined;
+const saveNoteEdit = async (note: any) => {
+  if (!note || !note.id) {
+    note.isEditing = false;
+    return;
   }
+
+  const newContent =
+    note.editingContent !== undefined
+      ? note.editingContent.trim()
+      : (note.content ?? "").trim();
+
+  if (!newContent) {
+    note.isEditing = false;
+    return;
+  }
+
+  const previousContent = note.content;
+  note.content = newContent;
+  note.editingContent = undefined;
   note.isEditing = false;
+
+  try {
+    await occasionNotesApi.updateNote(note.id, note.title, newContent);
+    await loadOccasionNotes(route.params.id);
+  } catch (error: any) {
+    console.error("Error updating shared occasion note:", error);
+    note.content = previousContent;
+    alert(
+      error instanceof Error
+        ? error.message
+        : "Failed to update note. Please try again."
+    );
+  }
 };
 
 // Cancel note edit
@@ -1187,25 +1226,16 @@ const cancelNoteEdit = (note: any) => {
 };
 
 // Bring in an existing note from the person's notes
-const addNoteFromRelationship = (relNote: {
+const addNoteFromRelationship = async (relNote: {
   note: any;
   title: string;
   content: string;
 }) => {
-  const relNoteId = relNote.note?.id;
   const relTitle = relNote.title;
 
   const existing = notes.value.find((n) => {
-    if (n.source !== "relationship") return false;
-
-    const noteId = n.noteRef?.id;
     const noteTitle = n.title;
 
-    if (noteId && relNoteId) {
-      return noteId === relNoteId;
-    }
-
-    // Fallback: match by title when IDs are missing
     if (noteTitle && relTitle) {
       return noteTitle === relTitle;
     }
@@ -1217,23 +1247,27 @@ const addNoteFromRelationship = (relNote: {
     return;
   }
 
-  const createdBy = userProfile.value?.name || getUserFirstName.value || "You";
-
-  notes.value.push({
-    id: relNote.note?.id || Date.now().toString(),
-    content: relNote.content,
-    assignees: [],
-    source: "relationship",
-    createdBy,
-    title: relNote.title,
-    noteRef: relNote.note,
-    isEditing: false,
-  });
-
-  // Persist updated selection of notes attached to this occasion
-  persistOccasionNotesSelection();
-
-  showImportNotes.value = false;
+  try {
+    if (!currentUser.value) {
+      alert("You must be logged in to add a note.");
+      return;
+    }
+    await occasionNotesApi.createNote(
+      currentUser.value,
+      route.params.id,
+      relNote.title || "Occasion note",
+      relNote.content
+    );
+    await loadOccasionNotes(route.params.id);
+    showImportNotes.value = false;
+  } catch (error: any) {
+    console.error("Error adding shared note from relationship:", error);
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to add note from relationship. Please try again.";
+    alert(message);
+  }
 };
 
 // Invite collaborator (by username, backed by CollaboratorsConcept)
@@ -1261,7 +1295,8 @@ const inviteCollaborator = async () => {
 
     // Get sender username from user profile or current user object
     // Note: The login form uses "email" field for username, so currentUser.username should be set
-    const senderUsername = userProfile.value?.username || currentUser.value?.username;
+    const senderUsername =
+      userProfile.value?.username || currentUser.value?.username;
     console.log("sender username", senderUsername);
     console.log("currentUser.value", currentUser.value);
     console.log("userProfile.value", userProfile.value);
@@ -1319,18 +1354,25 @@ const loadOccasionCollaborators = async (
 ) => {
   try {
     // Extract occasion ID if it's an object
-    const occasionIdValue = typeof occasionId === "string" 
-      ? occasionId 
-      : occasionId?.id || occasionId?.occasion || occasionId;
-    
-    console.log("[loadOccasionCollaborators] Loading collaborators for occasion:", occasionIdValue);
-    
+    const occasionIdValue =
+      typeof occasionId === "string"
+        ? occasionId
+        : occasionId?.id || occasionId?.occasion || occasionId;
+
+    console.log(
+      "[loadOccasionCollaborators] Loading collaborators for occasion:",
+      occasionIdValue
+    );
+
     // Load accepted collaborators
     const backendCollaborators =
       await collaboratorsApi.getCollaboratorsForOccasion(occasionIdValue);
-    
-    console.log("[loadOccasionCollaborators] Received collaborators from API:", backendCollaborators);
-    
+
+    console.log(
+      "[loadOccasionCollaborators] Received collaborators from API:",
+      backendCollaborators
+    );
+
     // Resolve usernames for collaborator user IDs
     const mapped: Array<{
       id: string;
@@ -1341,20 +1383,30 @@ const loadOccasionCollaborators = async (
       (backendCollaborators || []).map(async (c: any) => {
         const id = c.id || c._id || c.user || c;
         let username: string = String(id ?? "collaborator");
-        
+
         // If collaborator is just a user ID string, look up the profile
-        if (typeof c === "string" || (typeof id === "string" && !c.username && !c.name)) {
+        if (
+          typeof c === "string" ||
+          (typeof id === "string" && !c.username && !c.name)
+        ) {
           try {
-            const profile = await profileApi.getProfile({ id: String(id), username: String(id) });
+            const profile = await profileApi.getProfile({
+              id: String(id),
+              username: String(id),
+            });
             username = profile.username || profile.name || String(id);
           } catch (error) {
-            console.warn("[loadOccasionCollaborators] Failed to look up collaborator profile:", id, error);
+            console.warn(
+              "[loadOccasionCollaborators] Failed to look up collaborator profile:",
+              id,
+              error
+            );
             username = String(id); // Fallback to showing the ID
           }
         } else {
           username = c.username || c.name || String(id);
         }
-        
+
         const initial = username.charAt(0).toUpperCase();
         return {
           id: String(id),
@@ -1369,11 +1421,15 @@ const loadOccasionCollaborators = async (
     if (occasionOwnerId.value) {
       const ownerId = occasionOwnerId.value;
       const hasOwner = mapped.some((c: any) => c.id === ownerId);
-      
+
       if (!hasOwner) {
         try {
-          const ownerProfile = await profileApi.getProfile({ id: ownerId, username: ownerId });
-          const ownerName = ownerProfile.username || ownerProfile.name || ownerId;
+          const ownerProfile = await profileApi.getProfile({
+            id: ownerId,
+            username: ownerId,
+          });
+          const ownerName =
+            ownerProfile.username || ownerProfile.name || ownerId;
           mapped.unshift({
             id: ownerId,
             name: ownerName,
@@ -1381,7 +1437,11 @@ const loadOccasionCollaborators = async (
             status: "accepted" as const,
           });
         } catch (error) {
-          console.warn("[loadOccasionCollaborators] Failed to look up owner profile:", ownerId, error);
+          console.warn(
+            "[loadOccasionCollaborators] Failed to look up owner profile:",
+            ownerId,
+            error
+          );
           mapped.unshift({
             id: ownerId,
             name: ownerId,
@@ -1464,15 +1524,18 @@ const removeCollaborator = async (collabId: string) => {
       console.warn("[removeCollaborator] No occasion available");
       return;
     }
-    
+
     // Extract occasion ID
-    const occasionId = typeof occasion.value.occasion === "string"
-      ? occasion.value.occasion
-      : occasion.value.occasion?.id || occasion.value.occasion?.occasion || occasion.value.occasion;
-    
+    const occasionId =
+      typeof occasion.value.occasion === "string"
+        ? occasion.value.occasion
+        : occasion.value.occasion?.id ||
+          occasion.value.occasion?.occasion ||
+          occasion.value.occasion;
+
     // Call the backend API to remove the collaborator
     await collaboratorsApi.removeCollaborator(collabId, occasionId);
-    
+
     // Reload collaborators to reflect the change
     await loadOccasionCollaborators(occasionId, true);
   } catch (error: any) {
@@ -1844,7 +1907,12 @@ onUnmounted(() => {
                 </span>
               </div>
               <button
-                v-if="!isCurrentUserOwner && collab.id !== occasionOwnerId && collab.id !== (currentUser?.id || currentUser?.username || currentUser)"
+                v-if="
+                  !isCurrentUserOwner &&
+                  collab.id !== occasionOwnerId &&
+                  collab.id !==
+                    (currentUser?.id || currentUser?.username || currentUser)
+                "
                 @click="removeCollaborator(collab.id)"
                 class="pill-remove"
                 aria-label="Remove collaborator"
@@ -2492,7 +2560,9 @@ onUnmounted(() => {
                 stroke-linecap="round"
                 stroke-linejoin="round"
               >
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <path
+                  d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                ></path>
                 <polyline points="14 2 14 8 20 8"></polyline>
                 <line x1="16" y1="13" x2="8" y2="13"></line>
                 <line x1="16" y1="17" x2="8" y2="17"></line>
@@ -2510,10 +2580,7 @@ onUnmounted(() => {
             </p>
           </div>
           <div class="modal-footer no-notes-modal-footer">
-            <button
-              @click="showNoNotesModal = false"
-              class="button-secondary"
-            >
+            <button @click="showNoNotesModal = false" class="button-secondary">
               Got it
             </button>
             <button
