@@ -1172,13 +1172,30 @@ export const occasionsApi = {
  */
 export const tasksApi = {
   /**
-   * Create a new task for a user
+   * Create a new task for an occasion
    * POST /api/Task/createTask
    */
-  async createTask(owner: User, description: string): Promise<any> {
+  async createTask(
+    owner: User,
+    occasionId: any,
+    description: string,
+    priority: "low" | "medium" | "high" = "medium"
+  ): Promise<any> {
+    // Extract owner ID - backend expects a string ID, not an object
+    const ownerId =
+      typeof owner === "string" ? owner : owner?.id || owner?.username || owner;
+
+    // Extract occasion ID
+    const occasionIdValue =
+      typeof occasionId === "string"
+        ? occasionId
+        : occasionId?.id || occasionId?.occasion || occasionId;
+
     const response = await apiCall<ApiResponse<any>>("/Task/createTask", {
-      owner,
+      owner: ownerId,
+      occasionId: occasionIdValue,
       description,
+      priority,
     });
     if (!response.task) {
       throw new Error("Failed to create task");
@@ -1211,25 +1228,29 @@ export const tasksApi = {
   },
 
   /**
-   * Get all tasks for a user
+   * Get all tasks for an occasion
    * POST /api/Task/_getTasks
    */
-  async getTasks(owner: User): Promise<
+  async getTasks(occasionId: any): Promise<
     Array<{
       task: any;
       description: string;
+      priority: "low" | "medium" | "high";
     }>
   > {
-    // Extract owner ID - backend expects a string ID, not an object
-    const ownerId =
-      typeof owner === "string" ? owner : owner?.id || owner?.username || owner;
+    // Extract occasion ID
+    const occasionIdValue =
+      typeof occasionId === "string"
+        ? occasionId
+        : occasionId?.id || occasionId?.occasion || occasionId;
 
     const response = await apiCall<
       Array<{
         task: any;
         description: string;
+        priority: "low" | "medium" | "high";
       }>
-    >("/Task/_getTasks", { owner: ownerId });
+    >("/Task/_getTasks", { occasionId: occasionIdValue });
     return response;
   },
 };
@@ -1329,12 +1350,43 @@ export const taskChecklistApi = {
  */
 export const suggestionEngineApi = {
   /**
+   * Generate a generic suggestion for an owner based on contextual information.
+   * POST /api/SuggestionEngine/generateSuggestion
+   */
+  async generateSuggestion(
+    owner: User,
+    context: Record<string, any>,
+    occasionId: string
+  ): Promise<{ suggestion: any; content: string }> {
+    const response = await apiCall<{
+      suggestion?: any;
+      content?: string;
+      error?: string;
+    }>("/SuggestionEngine/generateSuggestion", {
+      owner,
+      context,
+      occasion: occasionId,
+    });
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    if (!response.suggestion || !response.content) {
+      throw new Error("Failed to generate suggestion");
+    }
+
+    return { suggestion: response.suggestion, content: response.content };
+  },
+
+  /**
    * Generate 3 gift/gesture suggestions for a person using aggregated shared notes as context.
    * POST /api/SuggestionEngine/generateGiftSuggestions
    */
   async generateGiftSuggestions(
     owner: User,
-    context: Record<string, any>
+    context: Record<string, any>,
+    occasionId: string
   ): Promise<
     Array<{
       suggestion: any;
@@ -1343,10 +1395,16 @@ export const suggestionEngineApi = {
   > {
     const response = await apiCall<{
       suggestions?: Array<{ suggestion: any; content: string }>;
+      error?: string;
     }>("/SuggestionEngine/generateGiftSuggestions", {
       owner,
       context,
+      occasion: occasionId,
     });
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
 
     if (!response.suggestions || !Array.isArray(response.suggestions)) {
       throw new Error("Failed to generate gift suggestions");
@@ -1356,14 +1414,15 @@ export const suggestionEngineApi = {
   },
 
   /**
-   * Get all previously generated suggestions for an owner.
+   * Get all previously generated suggestions for a specific occasion.
    * POST /api/SuggestionEngine/_getSuggestions
    */
-  async getSuggestions(owner: User): Promise<
+  async getSuggestions(occasionId: string): Promise<
     Array<{
       suggestion: any;
       content: string;
       generatedAt: string | Date;
+      occasionId: string;
     }>
   > {
     const response = await apiCall<
@@ -1371,9 +1430,10 @@ export const suggestionEngineApi = {
         suggestion: any;
         content: string;
         generatedAt: string | Date;
+        occasionId: string;
       }>
     >("/SuggestionEngine/_getSuggestions", {
-      owner,
+      occasion: occasionId,
     });
     return response;
   },

@@ -52,10 +52,16 @@ const noteTitle = ref("");
 const noteContent = ref("");
 const isCreatingNote = ref(false);
 const isUpdatingNote = ref(false);
+const isDeletingNote = ref(false);
+const deletingNoteId = ref<string | null>(null);
 const viewingNote = ref<{ note: any; title: string; content: string } | null>(
   null
 );
 const openedFromViewAll = ref(false);
+const noteFeedback = ref<{ type: "success" | "error"; message: string } | null>(
+  null
+);
+let noteFeedbackTimeout: ReturnType<typeof setTimeout> | null = null;
 
 // Display only first 8 notes on board, rest will be in "view all" modal
 const displayedNotes = computed(() => notes.value.slice(0, 8));
@@ -280,6 +286,28 @@ const handleCreateNote = async () => {
   }
 };
 
+const clearNoteFeedback = () => {
+  if (noteFeedbackTimeout) {
+    clearTimeout(noteFeedbackTimeout);
+    noteFeedbackTimeout = null;
+  }
+  noteFeedback.value = null;
+};
+
+const showNoteFeedback = (
+  message: string,
+  type: "success" | "error" = "success"
+) => {
+  noteFeedback.value = { message, type };
+  if (noteFeedbackTimeout) {
+    clearTimeout(noteFeedbackTimeout);
+  }
+  noteFeedbackTimeout = setTimeout(() => {
+    noteFeedback.value = null;
+    noteFeedbackTimeout = null;
+  }, 3500);
+};
+
 const handleUpdateNote = async () => {
   if (!viewingNote.value || !noteTitle.value.trim() || !currentUser.value)
     return;
@@ -308,6 +336,9 @@ const handleUpdateNote = async () => {
         viewingNote.value = updatedNote;
       }
     }
+
+    showNoteFeedback("Note updated successfully.");
+    closeNoteModal();
   } catch (error) {
     console.error("Error updating note:", error);
     alert("Failed to update note. Please try again.");
@@ -317,8 +348,8 @@ const handleUpdateNote = async () => {
 };
 
 const handleDeleteNote = async (note: any) => {
-  if (!confirm("Are you sure you want to delete this note?")) return;
-
+  isDeletingNote.value = true;
+  deletingNoteId.value = note?.id || null;
   try {
     await notesApi.deleteNote(note);
 
@@ -344,9 +375,14 @@ const handleDeleteNote = async (note: any) => {
         showAllNotesModal.value = true;
       }
     }
+
+    showNoteFeedback("Note deleted successfully.");
   } catch (error) {
     console.error("Error deleting note:", error);
-    alert("Failed to delete note. Please try again.");
+    showNoteFeedback("Failed to delete note. Please try again.", "error");
+  } finally {
+    isDeletingNote.value = false;
+    deletingNoteId.value = null;
   }
 };
 
@@ -390,8 +426,8 @@ const openNoteFromList = (note: {
 };
 
 const handleDeleteNoteFromList = async (note: any) => {
-  if (!confirm("Are you sure you want to delete this note?")) return;
-
+  isDeletingNote.value = true;
+  deletingNoteId.value = note?.id || null;
   try {
     await notesApi.deleteNote(note);
 
@@ -403,9 +439,14 @@ const handleDeleteNoteFromList = async (note: any) => {
       );
       notes.value = notesData;
     }
+
+    showNoteFeedback("Note deleted successfully.");
   } catch (error) {
     console.error("Error deleting note:", error);
-    alert("Failed to delete note. Please try again.");
+    showNoteFeedback("Failed to delete note. Please try again.", "error");
+  } finally {
+    isDeletingNote.value = false;
+    deletingNoteId.value = null;
   }
 };
 
@@ -510,11 +551,57 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.removeEventListener("click", handleClickOutside);
+  clearNoteFeedback();
 });
 </script>
 
 <template>
   <div class="relationship-detail-page">
+    <div
+      v-if="noteFeedback"
+      class="note-toast"
+      :class="{
+        'note-toast-success': noteFeedback.type === 'success',
+        'note-toast-error': noteFeedback.type === 'error',
+      }"
+      role="status"
+      aria-live="polite"
+    >
+      <div class="note-toast-icon">
+        <svg
+          v-if="noteFeedback.type === 'success'"
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="3"
+        >
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+        <svg
+          v-else
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="3"
+        >
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </div>
+      <div class="note-toast-message">{{ noteFeedback.message }}</div>
+      <button
+        class="note-toast-close"
+        @click="clearNoteFeedback"
+        aria-label="Dismiss notification"
+      >
+        &times;
+      </button>
+    </div>
+
     <!-- Header Bar -->
     <header class="relationship-detail-header">
       <div class="relationship-detail-header-content">
@@ -721,6 +808,7 @@ onUnmounted(() => {
                 <button
                   @click.stop="handleDeleteNote(note.note)"
                   class="post-it-delete"
+                  :disabled="isDeletingNote && deletingNoteId === note.note?.id"
                   aria-label="Delete note"
                 >
                   <svg
@@ -919,6 +1007,7 @@ onUnmounted(() => {
                 <button
                   @click.stop="handleDeleteNoteFromList(note.note)"
                   class="note-list-item-delete"
+                  :disabled="isDeletingNote && deletingNoteId === note.note?.id"
                   aria-label="Delete note"
                 >
                   <svg
@@ -967,6 +1056,9 @@ onUnmounted(() => {
             </button>
           </div>
           <div class="modal-content">
+            <p v-if="!viewingNote" class="modal-helper-text">
+              Add notes you'd like to remember about {{ relationshipName }}
+            </p>
             <div class="modal-form">
               <div class="modal-field">
                 <label class="modal-label">Title</label>
@@ -993,9 +1085,16 @@ onUnmounted(() => {
               v-if="viewingNote"
               @click="handleDeleteNote(viewingNote.note)"
               class="modal-button modal-button-danger"
-              :disabled="isUpdatingNote"
+              :disabled="
+                isUpdatingNote ||
+                (isDeletingNote && deletingNoteId === viewingNote.note?.id)
+              "
             >
-              Delete Note
+              {{
+                isDeletingNote && deletingNoteId === viewingNote.note?.id
+                  ? "Deleting..."
+                  : "Delete Note"
+              }}
             </button>
             <div class="modal-footer-actions">
               <button
