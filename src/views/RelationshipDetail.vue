@@ -62,6 +62,7 @@ const noteFeedback = ref<{ type: "success" | "error"; message: string } | null>(
   null
 );
 let noteFeedbackTimeout: ReturnType<typeof setTimeout> | null = null;
+const noteModalError = ref("");
 
 // Display only first 8 notes on board, rest will be in "view all" modal
 const displayedNotes = computed(() => notes.value.slice(0, 8));
@@ -78,6 +79,7 @@ const photoFileInput = ref<HTMLInputElement | null>(null);
 // New: drag state + preview for photo upload
 const isDraggingFile = ref(false);
 const previewUrl = ref<string | null>(null);
+const photoUploadError = ref("");
 
 // Photo gallery / lightbox state
 const isGalleryOpen = ref(false);
@@ -301,6 +303,7 @@ const handleCreateNote = async () => {
     return;
 
   isCreatingNote.value = true;
+  noteModalError.value = "";
   try {
     await notesApi.createNote(
       currentUser.value,
@@ -320,9 +323,10 @@ const handleCreateNote = async () => {
     noteTitle.value = "";
     noteContent.value = "";
     showNoteModal.value = false;
+    noteModalError.value = "";
   } catch (error) {
     console.error("Error creating note:", error);
-    alert("Failed to create note. Please try again.");
+    noteModalError.value = "Failed to create note. Please try again.";
   } finally {
     isCreatingNote.value = false;
   }
@@ -355,6 +359,7 @@ const handleUpdateNote = async () => {
     return;
 
   isUpdatingNote.value = true;
+  noteModalError.value = "";
   try {
     await notesApi.updateNote(
       viewingNote.value.note,
@@ -383,7 +388,7 @@ const handleUpdateNote = async () => {
     closeNoteModal();
   } catch (error) {
     console.error("Error updating note:", error);
-    alert("Failed to update note. Please try again.");
+    noteModalError.value = "Failed to update note. Please try again.";
   } finally {
     isUpdatingNote.value = false;
   }
@@ -535,6 +540,7 @@ const handleUploadPhoto = async () => {
   if (!selectedFile.value || !currentUser.value || !relationship.value) return;
 
   isUploadingPhoto.value = true;
+  photoUploadError.value = "";
   try {
     await memoryGalleryApi.uploadImage(
       selectedFile.value,
@@ -556,13 +562,14 @@ const handleUploadPhoto = async () => {
       photoFileInput.value.value = "";
     }
     showPhotoForm.value = false;
+    photoUploadError.value = "";
   } catch (error) {
     console.error("Error uploading photo:", error);
     const errorMessage =
       error instanceof Error
         ? error.message
         : "Failed to upload photo. Please try again.";
-    alert(errorMessage);
+    photoUploadError.value = errorMessage;
   } finally {
     isUploadingPhoto.value = false;
   }
@@ -1052,6 +1059,9 @@ onUnmounted(() => {
                   </button>
                 </div>
               </div>
+              <p v-if="photoUploadError" class="modal-error-text">
+                {{ photoUploadError }}
+              </p>
             </div>
           </div>
         </div>
@@ -1214,10 +1224,13 @@ onUnmounted(() => {
                   {{ isUpdatingNote ? "Updating..." : "Update Note" }}
                 </button>
               </div>
+              <p v-if="noteModalError" class="modal-error-text">
+                {{ noteModalError }}
+              </p>
             </div>
           </div>
         </div>
-      </transition>
+    </transition>
     </div>
 
     <!-- Photo Gallery / Lightbox (kept outside page-content for clean blur) -->
@@ -1583,6 +1596,12 @@ onUnmounted(() => {
   background: linear-gradient(135deg, #f9a8d4, #fed7aa);
   box-shadow: none;
   cursor: not-allowed;
+}
+
+.modal-error-text {
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+  color: #dc2626;
 }
 
 /* Photo Board clickable items */

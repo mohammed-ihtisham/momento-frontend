@@ -9,6 +9,8 @@ import {
   collaboratorsApi,
 } from "../api";
 import { nameToSlug } from "../utils";
+import FeedbackModal from "../components/FeedbackModal.vue";
+import { useFeedbackModal } from "../useFeedbackModal";
 
 const router = useRouter();
 
@@ -41,6 +43,16 @@ const invitations = ref<
 const pendingInvitationsCount = computed(
   () => invitations.value.filter((i) => i.status === "pending").length
 );
+
+// Shared feedback modal for this view
+const {
+  isFeedbackOpen,
+  feedbackTitle,
+  feedbackMessage,
+  feedbackVariant,
+  openErrorModal,
+  openFeedbackModal,
+} = useFeedbackModal();
 
 // Drag and drop state
 const draggedIndex = ref<number | null>(null);
@@ -180,11 +192,11 @@ const handleAcceptInvite = async (
     }
   } catch (error: any) {
     console.error("Error accepting invitation:", error);
-    alert(
+    const message =
       error instanceof Error
         ? error.message
-        : "Failed to accept invitation. Please try again."
-    );
+        : "Failed to accept invitation. Please try again.";
+    openErrorModal(message, "Could not accept invitation");
   }
 };
 
@@ -196,11 +208,11 @@ const handleDeclineInvite = async (
     invitations.value = invitations.value.filter((i) => i.id !== invite.id);
   } catch (error: any) {
     console.error("Error declining invitation:", error);
-    alert(
+    const message =
       error instanceof Error
         ? error.message
-        : "Failed to decline invitation. Please try again."
-    );
+        : "Failed to decline invitation. Please try again.";
+    openErrorModal(message, "Could not decline invitation");
   }
 };
 
@@ -384,7 +396,11 @@ const handleAddProfile = () => {
 // Handle add occasion - open modal
 const handleAddOccasion = () => {
   if (allRelationships.value.length === 0) {
-    alert("Please add a profile first before creating an occasion.");
+    openFeedbackModal({
+      message: "Please add a profile first before creating an occasion.",
+      title: "Add a profile first",
+      variant: "info",
+    });
     return;
   }
   occasionFormName.value = "";
@@ -457,7 +473,10 @@ const handleCreateOccasion = async () => {
     await loadDashboardData();
   } catch (error: any) {
     console.error("Error creating occasion:", error);
-    alert(error.message || "Failed to create occasion");
+    openErrorModal(
+      error.message || "Failed to create occasion",
+      "Could not create occasion"
+    );
   } finally {
     isSubmittingOccasion.value = false;
   }
@@ -1036,5 +1055,13 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- Global feedback modal for this view -->
+    <FeedbackModal
+      v-model="isFeedbackOpen"
+      :title="feedbackTitle"
+      :message="feedbackMessage"
+      :variant="feedbackVariant"
+    />
   </div>
 </template>

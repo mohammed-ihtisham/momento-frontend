@@ -8,6 +8,8 @@ import {
   occasionsApi,
   collaboratorsApi,
 } from "../api";
+import FeedbackModal from "../components/FeedbackModal.vue";
+import { useFeedbackModal } from "../useFeedbackModal";
 
 const router = useRouter();
 
@@ -53,12 +55,26 @@ const pendingInvitationsCount = computed(
   () => invitations.value.filter((i) => i.status === "pending").length
 );
 
+// Shared feedback modal for this view
+const {
+  isFeedbackOpen,
+  feedbackTitle,
+  feedbackMessage,
+  feedbackVariant,
+  openErrorModal,
+} = useFeedbackModal();
+
 // Modal state
 const showCreateModal = ref(false);
 const showEditModal = ref(false);
 const showDeleteModal = ref(false);
 const editingOccasion = ref<any>(null);
 const deletingOccasion = ref<any>(null);
+
+// Inline error messaging for CRUD modals
+const createOccasionError = ref("");
+const editOccasionError = ref("");
+const deleteOccasionError = ref("");
 
 // Form state
 const formName = ref("");
@@ -137,11 +153,11 @@ const handleAcceptInvite = async (
     }
   } catch (error: any) {
     console.error("Error accepting invitation:", error);
-    alert(
+    const message =
       error instanceof Error
         ? error.message
-        : "Failed to accept invitation. Please try again."
-    );
+        : "Failed to accept invitation. Please try again.";
+    openErrorModal(message, "Could not accept invitation");
   }
 };
 
@@ -153,11 +169,11 @@ const handleDeclineInvite = async (
     invitations.value = invitations.value.filter((i) => i.id !== invite.id);
   } catch (error: any) {
     console.error("Error declining invitation:", error);
-    alert(
+    const message =
       error instanceof Error
         ? error.message
-        : "Failed to decline invitation. Please try again."
-    );
+        : "Failed to decline invitation. Please try again.";
+    openErrorModal(message, "Could not decline invitation");
   }
 };
 
@@ -417,6 +433,7 @@ const handleCreateOccasion = async () => {
 
   try {
     isSubmitting.value = true;
+    createOccasionError.value = "";
     await occasionsApi.createOccasion(
       currentUser.value,
       // person name
@@ -429,7 +446,8 @@ const handleCreateOccasion = async () => {
     await loadOccasions();
   } catch (error: any) {
     console.error("Error creating occasion:", error);
-    alert(error.message || "Failed to create occasion");
+    createOccasionError.value =
+      error.message || "Failed to create occasion. Please try again.";
   } finally {
     isSubmitting.value = false;
   }
@@ -465,6 +483,7 @@ const handleUpdateOccasion = async () => {
 
   try {
     isSubmitting.value = true;
+    editOccasionError.value = "";
     await occasionsApi.updateOccasion(
       editingOccasion.value.occasion,
       // person
@@ -477,7 +496,8 @@ const handleUpdateOccasion = async () => {
     await loadOccasions();
   } catch (error: any) {
     console.error("Error updating occasion:", error);
-    alert(error.message || "Failed to update occasion");
+    editOccasionError.value =
+      error.message || "Failed to update occasion. Please try again.";
   } finally {
     isSubmitting.value = false;
   }
@@ -500,12 +520,14 @@ const handleDeleteOccasion = async () => {
   if (!deletingOccasion.value) return;
 
   try {
+    deleteOccasionError.value = "";
     await occasionsApi.deleteOccasion(deletingOccasion.value.occasion);
     closeDeleteModal();
     await loadOccasions();
   } catch (error: any) {
     console.error("Error deleting occasion:", error);
-    alert(error.message || "Failed to delete occasion");
+    deleteOccasionError.value =
+      error.message || "Failed to delete occasion. Please try again.";
   }
 };
 
@@ -1210,6 +1232,9 @@ onUnmounted(() => {
           >
             {{ isSubmitting ? "Creating..." : "Create Occasion" }}
           </button>
+          <p v-if="createOccasionError" class="modal-error-text">
+            {{ createOccasionError }}
+          </p>
         </div>
       </div>
     </div>
@@ -1316,6 +1341,9 @@ onUnmounted(() => {
           >
             {{ isSubmitting ? "Updating..." : "Update Occasion" }}
           </button>
+          <p v-if="editOccasionError" class="modal-error-text">
+            {{ editOccasionError }}
+          </p>
         </div>
       </div>
     </div>
@@ -1378,8 +1406,19 @@ onUnmounted(() => {
           <button @click="handleDeleteOccasion" class="button-danger">
             Delete Occasion
           </button>
+          <p v-if="deleteOccasionError" class="modal-error-text">
+            {{ deleteOccasionError }}
+          </p>
         </div>
       </div>
     </div>
+
+    <!-- Global feedback modal for this view -->
+    <FeedbackModal
+      v-model="isFeedbackOpen"
+      :title="feedbackTitle"
+      :message="feedbackMessage"
+      :variant="feedbackVariant"
+    />
   </div>
 </template>

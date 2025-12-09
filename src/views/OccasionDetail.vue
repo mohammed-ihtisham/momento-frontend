@@ -13,6 +13,8 @@ import {
   suggestionEngineApi,
   occasionNotesApi,
 } from "../api";
+import FeedbackModal from "../components/FeedbackModal.vue";
+import { useFeedbackModal } from "../useFeedbackModal";
 
 const router = useRouter();
 const route = useRoute();
@@ -82,6 +84,23 @@ const pendingInvitationsCount = computed(
   () => invitations.value.filter((i) => i.status === "pending").length
 );
 
+// Shared feedback modal for this view (used for non-modal, page-level actions)
+const {
+  isFeedbackOpen,
+  feedbackTitle,
+  feedbackMessage,
+  feedbackVariant,
+  openErrorModal,
+  openFeedbackModal,
+} = useFeedbackModal();
+
+// Inline error messaging for occasion note modals
+const occasionNoteError = ref("");
+const editOccasionNoteError = ref("");
+
+// Inline error messaging for invite collaborator modal
+const inviteError = ref("");
+
 // Load incoming invites for the current user from backend
 const loadIncomingInvitations = async () => {
   try {
@@ -147,11 +166,11 @@ const handleAcceptInvite = async (invite: Invitation) => {
     }
   } catch (error: any) {
     console.error("Error accepting invitation:", error);
-    alert(
+    const message =
       error instanceof Error
         ? error.message
-        : "Failed to accept invitation. Please try again."
-    );
+        : "Failed to accept invitation. Please try again.";
+    openErrorModal(message, "Could not accept invitation");
   }
 };
 
@@ -162,11 +181,11 @@ const handleDeclineInvite = async (invite: Invitation) => {
     invitations.value = invitations.value.filter((i) => i.id !== invite.id);
   } catch (error: any) {
     console.error("Error declining invitation:", error);
-    alert(
+    const message =
       error instanceof Error
         ? error.message
-        : "Failed to decline invitation. Please try again."
-    );
+        : "Failed to decline invitation. Please try again.";
+    openErrorModal(message, "Could not decline invitation");
   }
 };
 
@@ -430,7 +449,7 @@ const handleUpdateEvent = async () => {
       error instanceof Error
         ? error.message
         : "Failed to update event. Please try again.";
-    alert(message);
+    openErrorModal(message, "Could not update event");
   } finally {
     isUpdatingEvent.value = false;
   }
@@ -890,11 +909,11 @@ const toggleTask = async (taskId: string) => {
     console.error("Error updating task completion status:", error);
     // Revert UI on error
     task.completed = previousCompleted;
-    alert(
+    const message =
       error instanceof Error
         ? error.message
-        : "Failed to update task status. Please try again."
-    );
+        : "Failed to update task status. Please try again.";
+    openErrorModal(message, "Could not update task");
   }
 };
 
@@ -1043,7 +1062,7 @@ const addTask = async () => {
       error instanceof Error
         ? error.message
         : "Failed to add task. Please try again.";
-    alert(message);
+    openErrorModal(message, "Could not add task");
   }
 };
 
@@ -1078,7 +1097,7 @@ const deleteTask = async (taskId: string) => {
       error instanceof Error
         ? error.message
         : "Failed to delete task. Please try again.";
-    alert(message);
+    openErrorModal(message, "Could not delete task");
   }
 };
 
@@ -1131,7 +1150,7 @@ const saveTaskEdit = async (task: any) => {
       error instanceof Error
         ? error.message
         : "Failed to update task. Please try again.";
-    alert(message);
+    openErrorModal(message, "Could not update task");
   }
 };
 
@@ -1153,7 +1172,7 @@ const addNote = async () => {
 
   try {
     if (!currentUser.value) {
-      alert("You must be logged in to create a note.");
+      occasionNoteError.value = "You must be logged in to create a note.";
       return;
     }
     await occasionNotesApi.createNote(
@@ -1169,17 +1188,19 @@ const addNote = async () => {
       error instanceof Error
         ? error.message
         : "Failed to create note. Please try a different title.";
-    alert(message);
+    occasionNoteError.value = message;
     return;
   }
 
   newNoteTitle.value = "";
   newNoteContent.value = "";
+  occasionNoteError.value = "";
 };
 
 const openOccasionNoteModal = () => {
   newNoteTitle.value = "";
   newNoteContent.value = "";
+  occasionNoteError.value = "";
   showNoteModal.value = true;
 };
 
@@ -1187,11 +1208,13 @@ const closeOccasionNoteModal = () => {
   showNoteModal.value = false;
   newNoteTitle.value = "";
   newNoteContent.value = "";
+  occasionNoteError.value = "";
 };
 
 const handleCreateOccasionNote = async () => {
   if (!newNoteTitle.value.trim() || !newNoteContent.value.trim()) return;
   isCreatingOccasionNote.value = true;
+  occasionNoteError.value = "";
   try {
     await addNote();
     showNoteModal.value = false;
@@ -1211,11 +1234,11 @@ const deleteNote = async (noteId: string) => {
   } catch (error: any) {
     console.error("Error deleting shared occasion note:", error);
     notes.value = previousNotes;
-    alert(
+    const message =
       error instanceof Error
         ? error.message
-        : "Failed to delete note. Please try again."
-    );
+        : "Failed to delete note. Please try again.";
+    openErrorModal(message, "Could not delete note");
   }
 };
 
@@ -1267,7 +1290,7 @@ const saveNoteEdit = async () => {
   const trimmedContent = editingOccasionNoteContent.value.trim();
 
   if (!trimmedTitle || !trimmedContent) {
-    alert("Title and content cannot be empty.");
+    editOccasionNoteError.value = "Title and content cannot be empty.";
     return;
   }
 
@@ -1281,17 +1304,18 @@ const saveNoteEdit = async () => {
     showNoteFeedback("Note updated successfully.");
   } catch (error: any) {
     console.error("Error updating shared occasion note:", error);
-    alert(
+    const message =
       error instanceof Error
         ? error.message
-        : "Failed to update note. Please try again."
-    );
+        : "Failed to update note. Please try again.";
+    editOccasionNoteError.value = message;
   }
 };
 
 // Cancel note edit (modal)
 const cancelNoteEdit = () => {
   resetEditOccasionNoteModal();
+  editOccasionNoteError.value = "";
 };
 
 // Bring in an existing note from the person's notes
@@ -1318,7 +1342,7 @@ const addNoteFromRelationship = async (relNote: {
 
   try {
     if (!currentUser.value) {
-      alert("You must be logged in to add a note.");
+      editOccasionNoteError.value = "You must be logged in to add a note.";
       return;
     }
     await occasionNotesApi.createNote(
@@ -1335,7 +1359,7 @@ const addNoteFromRelationship = async (relNote: {
       error instanceof Error
         ? error.message
         : "Failed to add note from relationship. Please try again.";
-    alert(message);
+    editOccasionNoteError.value = message;
   }
 };
 
@@ -1345,13 +1369,15 @@ const inviteCollaborator = async () => {
   console.log("recipient username", username);
   if (!username) return;
 
+  inviteError.value = "";
+
   // Avoid duplicate collaborators by username
   if (
     collaborators.value.some(
       (c) => c.name.toLowerCase() === username.toLowerCase()
     )
   ) {
-    alert("This user is already a collaborator.");
+    inviteError.value = "This user is already a collaborator.";
     return;
   }
 
@@ -1382,9 +1408,6 @@ const inviteCollaborator = async () => {
     // Reload collaborators to show the pending invite tag (include sent invites)
     await loadOccasionCollaborators(occasion.value.occasion, true);
 
-    // Show success message
-    alert(`Invitation sent successfully to ${username}!`);
-
     // Only clear input & close modal on success
     newCollaboratorUsername.value = "";
     showInviteModal.value = false;
@@ -1400,19 +1423,32 @@ const inviteCollaborator = async () => {
 
     // Provide a cleaner message when a pending invite already exists
     if (lower.includes("pending invite already exists")) {
-      alert("An invitation is already pending for this user on this occasion.");
+      inviteError.value =
+        "An invitation is already pending for this user on this occasion.";
       return;
     }
 
     // Provide a clearer message if sender/recipient validation failed
     if (lower.includes("sender and recipient are required")) {
-      alert(
-        "Unable to send invite. Please make sure you are logged in and the username is valid, then try again."
-      );
+      inviteError.value =
+        "Unable to send invite. Please make sure you are logged in and the username is valid, then try again.";
       return;
     }
 
-    alert(rawMessage);
+    // Backend 500-style / unknown errors – show a user-focused message
+    if (
+      lower.includes("occasion not found") ||
+      lower.includes("no occasion") ||
+      lower.includes("internal server error")
+    ) {
+      inviteError.value =
+        "User not found. Please check the username and try again.";
+      return;
+    }
+
+    inviteError.value =
+      rawMessage ||
+      "User not found. Please check the username and try again.";
   }
 };
 
@@ -1609,11 +1645,11 @@ const removeCollaborator = async (collabId: string) => {
     await loadOccasionCollaborators(occasionId, true);
   } catch (error: any) {
     console.error("Error removing collaborator:", error);
-    alert(
+    const message =
       error instanceof Error
         ? error.message
-        : "Failed to remove collaborator. Please try again."
-    );
+        : "Failed to remove collaborator. Please try again.";
+    openErrorModal(message, "Could not remove collaborator");
   }
 };
 
@@ -1642,7 +1678,11 @@ const loadExistingSuggestions = async () => {
 // Get suggestions
 const getSuggestions = async () => {
   if (!currentUser.value) {
-    alert("You need to be logged in to get suggestions.");
+    openFeedbackModal({
+      message: "You need to be logged in to get suggestions.",
+      title: "Log in to see suggestions",
+      variant: "warning",
+    });
     return;
   }
 
@@ -1691,7 +1731,7 @@ const getSuggestions = async () => {
       error instanceof Error
         ? error.message
         : "Failed to get suggestions. Please try again.";
-    alert(message);
+    openErrorModal(message, "Could not load suggestions");
   } finally {
     isLoadingSuggestions.value = false;
   }
@@ -2554,6 +2594,9 @@ onUnmounted(() => {
                 {{ isCreatingOccasionNote ? "Adding..." : "Add Note" }}
               </button>
             </div>
+            <p v-if="occasionNoteError" class="modal-error-text">
+              {{ occasionNoteError }}
+            </p>
           </div>
         </div>
       </div>
@@ -2628,6 +2671,9 @@ onUnmounted(() => {
                 Save Note
               </button>
             </div>
+            <p v-if="editOccasionNoteError" class="modal-error-text">
+              {{ editOccasionNoteError }}
+            </p>
           </div>
         </div>
       </div>
@@ -2697,6 +2743,9 @@ onUnmounted(() => {
               class="form-input"
               @keyup.enter="inviteCollaborator"
             />
+            <p v-if="inviteError" class="modal-error-text">
+              {{ inviteError }}
+            </p>
           </div>
         </div>
         <div class="modal-footer">
@@ -2798,4 +2847,12 @@ onUnmounted(() => {
       </div>
     </transition>
   </div>
+
+  <!-- Global feedback modal for this view -->
+  <FeedbackModal
+    v-model="isFeedbackOpen"
+    :title="feedbackTitle"
+    :message="feedbackMessage"
+    :variant="feedbackVariant"
+  />
 </template>
