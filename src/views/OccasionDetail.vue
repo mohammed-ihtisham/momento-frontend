@@ -201,6 +201,14 @@ const notes = ref<
 >([]);
 const newNoteTitle = ref("");
 const newNoteContent = ref("");
+const showEditOccasionNoteModal = ref(false);
+const editingOccasionNote = ref<any | null>(null);
+const editingOccasionNoteTitle = ref("");
+const editingOccasionNoteContent = ref("");
+const noteFeedback = ref<{ type: "success" | "error"; message: string } | null>(
+  null
+);
+let noteFeedbackTimeout: ReturnType<typeof setTimeout> | null = null;
 
 const normalizeUserId = (user: any) => {
   if (!user) return null;
@@ -769,8 +777,16 @@ const loadOccasion = async () => {
           );
 
           if (userIdToLoadTasks) {
+            // Extract occasion ID for loading tasks
+            const occasionIdForTasks =
+              typeof found.occasion === "string"
+                ? found.occasion
+                : found.occasion?.id ||
+                  found.occasion?.occasion ||
+                  route.params.id;
+
             const [taskList, checklist] = await Promise.all([
-              tasksApi.getTasks(userIdToLoadTasks),
+              tasksApi.getTasks(occasionIdForTasks),
               taskChecklistApi.getChecklist(userIdToLoadTasks),
             ]);
 
@@ -799,15 +815,16 @@ const loadOccasion = async () => {
               .filter((t) => checklistMap.has(t.task))
               .map((t) => {
                 const taskIdStr = String(t.task);
+                // Use backend priority first, then localStorage, then default to "medium"
+                const priority =
+                  t.priority ||
+                  savedPriorities[taskIdStr] ||
+                  ("medium" as "low" | "medium" | "high");
                 return {
                   id: taskIdStr,
                   name: t.description,
                   completed: !!checklistMap.get(t.task),
-                  // Priority is stored in localStorage since backend doesn't support it
-                  priority: (savedPriorities[taskIdStr] || "medium") as
-                    | "low"
-                    | "medium"
-                    | "high",
+                  priority: priority as "low" | "medium" | "high",
                   assignees: [],
                   isEditing: false,
                 };
@@ -910,8 +927,23 @@ const addTask = async () => {
       isCurrentUserOwner.value
     );
 
+    console.log("[addTask] New task priority:", newTaskPriority.value);
+
+    // Extract occasion ID for creating task
+    const occasionIdForTask =
+      typeof occasion.value?.occasion === "string"
+        ? occasion.value.occasion
+        : occasion.value?.occasion?.id ||
+          occasion.value?.occasion?.occasion ||
+          route.params.id;
+
     // 1) Create the underlying Task
-    const createdTask = await tasksApi.createTask(taskOwnerId, description);
+    const createdTask = await tasksApi.createTask(
+      taskOwnerId,
+      occasionIdForTask,
+      description,
+      newTaskPriority.value
+    );
     const taskId = String(
       (createdTask as any).id ?? (createdTask as any).task ?? createdTask
     );
@@ -929,8 +961,16 @@ const addTask = async () => {
         priorityMap.set(task.id, task.priority);
       }
 
+      // Extract occasion ID for reloading tasks
+      const occasionIdForReload =
+        typeof occasion.value?.occasion === "string"
+          ? occasion.value.occasion
+          : occasion.value?.occasion?.id ||
+            occasion.value?.occasion?.occasion ||
+            route.params.id;
+
       const [taskList, checklist] = await Promise.all([
-        tasksApi.getTasks(taskOwnerId),
+        tasksApi.getTasks(occasionIdForReload),
         taskChecklistApi.getChecklist(taskOwnerId),
       ]);
 
@@ -959,13 +999,15 @@ const addTask = async () => {
         .filter((t) => checklistMap.has(t.task))
         .map((t) => {
           const taskIdStr = String(t.task);
-          // Use saved priority, or the new task's priority if it's the one we just added, or preserved priority, or default to medium
+          // For the newly added task, use the selected priority
+          // For other tasks, use backend priority first, then preserved priority, then localStorage, then default to medium
           const priority =
             taskIdStr === taskId
               ? newTaskPriority.value
-              : priorityMap.get(taskIdStr) ||
+              : t.priority ||
+                priorityMap.get(taskIdStr) ||
                 savedPriorities[taskIdStr] ||
-                "medium";
+                ("medium" as "low" | "medium" | "high");
 
           return {
             id: taskIdStr,
@@ -1177,40 +1219,68 @@ const deleteNote = async (noteId: string) => {
   }
 };
 
-// Start editing note
+// Start editing note (open modal)
 const startEditingNote = (note: any) => {
-  note.editingContent = note.content;
-  note.isEditing = true;
+  editingOccasionNote.value = note;
+  editingOccasionNoteTitle.value = note.title || "Occasion note";
+  editingOccasionNoteContent.value = note.content || "";
+  showEditOccasionNoteModal.value = true;
 };
 
-// Save note edit
-const saveNoteEdit = async (note: any) => {
-  if (!note || !note.id) {
-    note.isEditing = false;
+const resetEditOccasionNoteModal = () => {
+  showEditOccasionNoteModal.value = false;
+  editingOccasionNote.value = null;
+  editingOccasionNoteTitle.value = "";
+  editingOccasionNoteContent.value = "";
+};
+
+const clearNoteFeedback = () => {
+  if (noteFeedbackTimeout) {
+    clearTimeout(noteFeedbackTimeout);
+    noteFeedbackTimeout = null;
+  }
+  noteFeedback.value = null;
+};
+
+const showNoteFeedback = (
+  message: string,
+  type: "success" | "error" = "success"
+) => {
+  noteFeedback.value = { message, type };
+  if (noteFeedbackTimeout) {
+    clearTimeout(noteFeedbackTimeout);
+  }
+  noteFeedbackTimeout = setTimeout(() => {
+    noteFeedback.value = null;
+    noteFeedbackTimeout = null;
+  }, 3500);
+};
+
+// Save note edit (modal)
+const saveNoteEdit = async () => {
+  if (!editingOccasionNote.value) {
+    resetEditOccasionNoteModal();
     return;
   }
 
-  const newContent =
-    note.editingContent !== undefined
-      ? note.editingContent.trim()
-      : (note.content ?? "").trim();
+  const trimmedTitle = editingOccasionNoteTitle.value.trim();
+  const trimmedContent = editingOccasionNoteContent.value.trim();
 
-  if (!newContent) {
-    note.isEditing = false;
+  if (!trimmedTitle || !trimmedContent) {
+    alert("Title and content cannot be empty.");
     return;
   }
 
-  const previousContent = note.content;
-  note.content = newContent;
-  note.editingContent = undefined;
-  note.isEditing = false;
+  const noteId =
+    editingOccasionNote.value.noteRef || editingOccasionNote.value.id;
 
   try {
-    await occasionNotesApi.updateNote(note.id, note.title, newContent);
+    await occasionNotesApi.updateNote(noteId, trimmedTitle, trimmedContent);
     await loadOccasionNotes(route.params.id);
+    resetEditOccasionNoteModal();
+    showNoteFeedback("Note updated successfully.");
   } catch (error: any) {
     console.error("Error updating shared occasion note:", error);
-    note.content = previousContent;
     alert(
       error instanceof Error
         ? error.message
@@ -1219,10 +1289,9 @@ const saveNoteEdit = async (note: any) => {
   }
 };
 
-// Cancel note edit
-const cancelNoteEdit = (note: any) => {
-  note.editingContent = undefined;
-  note.isEditing = false;
+// Cancel note edit (modal)
+const cancelNoteEdit = () => {
+  resetEditOccasionNoteModal();
 };
 
 // Bring in an existing note from the person's notes
@@ -1548,6 +1617,28 @@ const removeCollaborator = async (collabId: string) => {
   }
 };
 
+// Load existing suggestions for the occasion
+const loadExistingSuggestions = async () => {
+  if (!currentUser.value) return;
+
+  const occasionId = route.params.id as string;
+  if (!occasionId) return;
+
+  try {
+    const existingSuggestions = await suggestionEngineApi.getSuggestions(
+      occasionId
+    );
+
+    // Extract content from suggestions and populate the ref
+    if (existingSuggestions && existingSuggestions.length > 0) {
+      suggestions.value = existingSuggestions.map((s) => s.content);
+    }
+  } catch (error) {
+    console.error("Error loading existing suggestions:", error);
+    // Silently fail - don't show error to user, just don't load suggestions
+  }
+};
+
 // Get suggestions
 const getSuggestions = async () => {
   if (!currentUser.value) {
@@ -1570,13 +1661,15 @@ const getSuggestions = async () => {
       })
       .join("\n\n");
 
+    const occasionId = route.params.id as string;
+    console.log("Occasion ID:", occasionId);
+
     const context = {
       sharedNotes,
       personName: relationshipName.value,
       occasionName: eventName.value,
       occasionDate: eventDate.value,
       daysRemaining: remainingDays.value,
-      occasionId: route.params.id,
       collaborators: collaborators.value.map((c) => ({
         id: c.id,
         name: c.name,
@@ -1586,7 +1679,8 @@ const getSuggestions = async () => {
 
     const result = await suggestionEngineApi.generateGiftSuggestions(
       currentUser.value,
-      context
+      context,
+      occasionId
     );
 
     // Backend already flattens each suggestion into a single string
@@ -1639,17 +1733,64 @@ onMounted(async () => {
   currentUser.value = savedUser;
   await loadUserProfile();
   await loadOccasion();
+  await loadExistingSuggestions();
 
   document.addEventListener("click", handleClickOutside);
 });
 
 onUnmounted(() => {
   document.removeEventListener("click", handleClickOutside);
+  clearNoteFeedback();
 });
 </script>
 
 <template>
   <div class="occasion-detail-page">
+    <div
+      v-if="noteFeedback"
+      class="note-toast"
+      :class="{
+        'note-toast-success': noteFeedback.type === 'success',
+        'note-toast-error': noteFeedback.type === 'error',
+      }"
+      role="status"
+      aria-live="polite"
+    >
+      <div class="note-toast-icon">
+        <svg
+          v-if="noteFeedback.type === 'success'"
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="3"
+        >
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+        <svg
+          v-else
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="3"
+        >
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </div>
+      <div class="note-toast-message">{{ noteFeedback.message }}</div>
+      <button
+        class="note-toast-close"
+        @click="clearNoteFeedback"
+        aria-label="Dismiss notification"
+      >
+        &times;
+      </button>
+    </div>
+
     <!-- Header Bar -->
     <header class="relationship-detail-header">
       <div class="relationship-detail-header-content">
@@ -2074,38 +2215,13 @@ onUnmounted(() => {
           <div class="section-header-with-help">
             <h2 class="section-title">Shared Notes</h2>
             <p class="section-help-text">
-              Each user can selectively choose to share notes they gathered on
-              person.
+              Share notes that are necessary for this occasion to happen.
             </p>
           </div>
           <div class="notes-container">
             <div v-for="note in notes" :key="note.id" class="note-card">
               <div class="note-content-wrapper">
-                <div v-if="note.isEditing" class="note-editing">
-                  <textarea
-                    v-model="note.editingContent"
-                    @keyup.esc="cancelNoteEdit(note)"
-                    class="note-edit-input"
-                    rows="3"
-                    autofocus
-                  ></textarea>
-                  <div class="note-edit-actions">
-                    <button @click="saveNoteEdit(note)" class="note-save-btn">
-                      Save
-                    </button>
-                    <button
-                      @click="cancelNoteEdit(note)"
-                      class="note-cancel-btn"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-                <div
-                  v-else
-                  @dblclick="startEditingNote(note)"
-                  class="note-content"
-                >
+                <div @dblclick="startEditingNote(note)" class="note-content">
                   <h3 class="note-title">
                     {{ note.title || "Note" }}
                   </h3>
@@ -2436,6 +2552,80 @@ onUnmounted(() => {
                 class="modal-button modal-button-primary"
               >
                 {{ isCreatingOccasionNote ? "Adding..." : "Add Note" }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </transition>
+
+    <!-- Edit Occasion Note Modal -->
+    <transition name="modal">
+      <div
+        v-if="showEditOccasionNoteModal"
+        class="modal-overlay"
+        @click.self="cancelNoteEdit"
+      >
+        <div class="modal-container" @click.stop>
+          <div class="modal-header">
+            <h2 class="modal-title">Edit Note</h2>
+            <button
+              @click="cancelNoteEdit"
+              class="modal-close"
+              aria-label="Close modal"
+            >
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+          <div class="modal-content">
+            <div class="modal-form">
+              <div class="modal-field">
+                <label class="modal-label">Title</label>
+                <input
+                  v-model="editingOccasionNoteTitle"
+                  type="text"
+                  placeholder="Note title..."
+                  class="modal-input"
+                />
+              </div>
+              <div class="modal-field">
+                <label class="modal-label">Content</label>
+                <textarea
+                  v-model="editingOccasionNoteContent"
+                  placeholder="Update your note..."
+                  class="modal-textarea"
+                  rows="8"
+                ></textarea>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <div class="modal-footer-actions">
+              <button
+                @click="cancelNoteEdit"
+                class="modal-button modal-button-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                @click="saveNoteEdit"
+                class="modal-button modal-button-primary"
+                :disabled="
+                  !editingOccasionNoteTitle.trim() ||
+                  !editingOccasionNoteContent.trim()
+                "
+              >
+                Save Note
               </button>
             </div>
           </div>
