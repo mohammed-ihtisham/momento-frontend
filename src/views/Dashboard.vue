@@ -91,7 +91,7 @@ const loadInvitations = async () => {
     console.log("[Dashboard] Loading incoming invites...");
     const backendInvites = await collaboratorsApi.getIncomingInvites();
     console.log("[Dashboard] Received invites from API:", backendInvites);
-    
+
     // Resolve sender usernames
     const invitesWithUsernames = await Promise.all(
       (backendInvites || [])
@@ -100,14 +100,21 @@ const loadInvitations = async () => {
           const rawInvite = inv.invite;
           const sender = inv.sender;
           let username = "someone";
-          
+
           // If sender is a string (user ID), look up the profile
           if (typeof sender === "string") {
             try {
-              const profile = await profileApi.getProfile({ id: sender, username: sender });
+              const profile = await profileApi.getProfile({
+                id: sender,
+                username: sender,
+              });
               username = profile.username || profile.name || sender;
             } catch (error) {
-              console.warn("[Dashboard] Failed to look up sender profile:", sender, error);
+              console.warn(
+                "[Dashboard] Failed to look up sender profile:",
+                sender,
+                error
+              );
               username = sender; // Fallback to showing the ID
             }
           } else if (sender?.username) {
@@ -115,7 +122,7 @@ const loadInvitations = async () => {
           } else if (sender?.name) {
             username = sender.name;
           }
-          
+
           return {
             id: String(rawInvite?.id ?? rawInvite ?? inv.id ?? ""),
             invitePayload: rawInvite,
@@ -125,7 +132,7 @@ const loadInvitations = async () => {
           };
         })
     );
-    
+
     invitations.value = invitesWithUsernames;
   } catch (error) {
     console.error("Failed to load collaborator invitations:", error);
@@ -139,18 +146,20 @@ const handleAcceptInvite = async (
   try {
     await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id);
     invitations.value = invitations.value.filter((i) => i.id !== invite.id);
-    
+
     // Reload occasions to show the newly accepted occasion immediately
     if (currentUser.value) {
       try {
-        const occasionsData = await occasionsApi.getOccasions(currentUser.value);
-        
+        const occasionsData = await occasionsApi.getOccasions(
+          currentUser.value
+        );
+
         // Enrich with relationship/relationshipType info
         const enriched = occasionsData.map((occ) => {
           const relationship = allRelationships.value.find(
             (r) => r.name === occ.person
           );
-          
+
           return {
             ...occ,
             id: occ.occasion?.id || occ.occasionType + occ.person + occ.date,
@@ -160,10 +169,13 @@ const handleAcceptInvite = async (
             date: new Date(occ.date),
           };
         });
-        
+
         occasions.value = enriched;
       } catch (error) {
-        console.error("Error reloading occasions after accepting invite:", error);
+        console.error(
+          "Error reloading occasions after accepting invite:",
+          error
+        );
       }
     }
   } catch (error: any) {
@@ -741,7 +753,7 @@ onUnmounted(() => {
           <section class="dashboard-section">
             <div class="section-header">
               <div class="section-header-content">
-                <h2 class="section-title">Your People</h2>
+                <h2 class="section-title">Pinned Relationships</h2>
                 <p
                   v-if="
                     allRelationships.length === 0 && !isLoadingRelationships
