@@ -25,20 +25,6 @@ const relationship = ref<any>(null);
 const isLoading = ref(true);
 const relationshipName = ref("");
 const relationshipType = ref("");
-const showUserMenu = ref(false);
-
-// Invitations dropdown (inbox)
-const showInvitesMenu = ref(false);
-const invitations = ref<
-  Array<{
-    id: string;
-    invitePayload: any;
-    toUsername: string;
-    createdAt: string;
-    status: "pending" | "accepted" | "error";
-    errorMessage?: string;
-  }>
->([]);
 
 // const pendingInvitationsCount = computed(
 //   () => invitations.value.filter((i) => i.status === "pending").length
@@ -71,6 +57,11 @@ const remainingNotesCount = computed(() => notes.value.length - 8);
 
 // Photos state
 const photos = ref<Array<{ imageUrl: string; uploadDate: string }>>([]);
+// Display only first 8 photos on board, rest will be in "view all" modal
+const displayedPhotos = computed(() => photos.value.slice(0, 8));
+const hasMorePhotos = computed(() => photos.value.length > 8);
+const remainingPhotosCount = computed(() => photos.value.length - 8);
+const showAllPhotosModal = ref(false);
 const showPhotoForm = ref(false);
 const selectedFile = ref<File | null>(null);
 const isUploadingPhoto = ref(false);
@@ -151,46 +142,6 @@ const handleGalleryKeydown = (event: KeyboardEvent) => {
   }
 };
 
-// Get user's first name from profile
-const getUserFirstName = computed(() => {
-  if (userProfile.value?.name) {
-    const firstName = userProfile.value.name.split(" ")[0];
-    return (
-      firstName ||
-      userProfile.value.name ||
-      userProfile.value.username ||
-      "User"
-    );
-  }
-  return userProfile.value?.username || currentUser.value?.username || "User";
-});
-
-// Load incoming invitations for the current user from backend
-const loadInvitations = async () => {
-  try {
-    // const backendInvites = await collaboratorsApi.getIncomingInvites();
-    // invitations.value = (backendInvites || [])
-    //   .filter((inv: any) => inv.status === "pending")
-    //   .map((inv: any) => {
-    //     const rawInvite = inv.invite;
-    //     const sender = inv.sender;
-    //     const username =
-    //       typeof sender === "string"
-    //         ? sender
-    //         : sender?.username || sender?.name || "someone";
-    //     return {
-    //       id: String(rawInvite?.id ?? rawInvite ?? inv.id ?? ""),
-    //       invitePayload: rawInvite,
-    //       toUsername: username,
-    //       createdAt: inv.createdAt,
-    //       status: "pending" as const,
-    //     };
-    //   });
-  } catch (error) {
-    console.error("Failed to load collaborator invitations:", error);
-    invitations.value = [];
-  }
-};
 
 // Post-it colors for variety
 const postItColors = [
@@ -288,14 +239,7 @@ const handleBack = () => {
   }
 };
 
-// Logout function
-const handleLogout = async () => {
-  sessionManager.clearUser();
-  currentUser.value = null;
-  userProfile.value = null;
-  showUserMenu.value = false;
-  router.replace("/");
-};
+// Logout function (removed - handled by Layout)
 
 // Note management
 const handleCreateNote = async () => {
@@ -597,16 +541,7 @@ const handleImageLoad = (event: Event) => {
   console.log("Image loaded successfully:", img.src);
 };
 
-// Close user menu when clicking outside
-const handleClickOutside = (event: MouseEvent) => {
-  const target = event.target as HTMLElement;
-  if (!target.closest(".user-menu-wrapper")) {
-    showUserMenu.value = false;
-  }
-  if (!target.closest(".navbar-mail-wrapper")) {
-    showInvitesMenu.value = false;
-  }
-};
+// Close user menu when clicking outside (removed - handled by Layout)
 
 // Close modal when clicking outside
 const handleModalClick = (event: MouseEvent) => {
@@ -626,14 +561,11 @@ onMounted(async () => {
   currentUser.value = savedUser;
   await loadUserProfile();
   await loadRelationshipData();
-  await loadInvitations();
 
-  document.addEventListener("click", handleClickOutside);
   window.addEventListener("keydown", handleGalleryKeydown);
 });
 
 onUnmounted(() => {
-  document.removeEventListener("click", handleClickOutside);
   window.removeEventListener("keydown", handleGalleryKeydown);
   clearNoteFeedback();
   cleanupPreviewUrl();
@@ -644,7 +576,7 @@ onUnmounted(() => {
   <div class="relationship-detail-page">
     <!-- Everything except the lightbox goes inside page-content so we can blur it -->
     <div
-      class="page-content"
+      class="relationship-page-content"
       :class="{ 'page-content-blurred': isGalleryOpen }"
     >
       <div
@@ -692,13 +624,19 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <!-- Header Bar -->
-      <header class="relationship-detail-header">
-        <div class="relationship-detail-header-content">
-          <div class="relationship-detail-logo">
+      <!-- Main Content -->
+      <main class="relationship-detail-main">
+        <div v-if="isLoading" class="loading-state-full">
+          <div class="spinner-large"></div>
+          <p>Loading relationship...</p>
+        </div>
+
+        <div v-else class="relationship-detail-container">
+          <!-- Back Button -->
+          <div class="relationship-detail-back">
             <button
               @click="handleBack"
-              class="back-button-inline"
+              class="back-button"
               aria-label="Go back"
             >
               <svg
@@ -711,56 +649,10 @@ onUnmounted(() => {
               >
                 <polyline points="15 18 9 12 15 6"></polyline>
               </svg>
+              <span>Back</span>
             </button>
-            <img src="/momento-logo.png" alt="Momento" class="logo-image" />
-            <span class="logo-text">Momento</span>
           </div>
-          <div class="navbar-right">
-            <!-- invitations dropdown omitted -->
-            <div class="user-menu-wrapper">
-              <button
-                @click.stop="showUserMenu = !showUserMenu"
-                class="user-menu-trigger"
-                :aria-expanded="showUserMenu"
-                aria-label="User menu"
-              >
-                <span class="user-greeting">Hi {{ getUserFirstName }}!</span>
-                <div class="user-avatar">
-                  <span class="avatar-initial">
-                    {{ getUserFirstName.charAt(0).toUpperCase() }}
-                  </span>
-                </div>
-              </button>
-              <div v-if="showUserMenu" class="user-menu-dropdown" @click.stop>
-                <button class="menu-item menu-item-danger" @click="handleLogout">
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                  >
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                    <polyline points="16 17 21 12 16 7"></polyline>
-                    <line x1="21" y1="12" x2="9" y2="12"></line>
-                  </svg>
-                  Log Out
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
 
-      <!-- Main Content -->
-      <main class="relationship-detail-main">
-        <div v-if="isLoading" class="loading-state-full">
-          <div class="spinner-large"></div>
-          <p>Loading relationship...</p>
-        </div>
-
-        <div v-else class="relationship-detail-container">
           <!-- Relationship Info Section -->
           <section class="relationship-info-section">
             <div class="relationship-info-card">
@@ -909,7 +801,7 @@ onUnmounted(() => {
                 </div>
                 <div v-else class="photo-grid">
                   <button
-                    v-for="(photo, index) in photos"
+                    v-for="(photo, index) in displayedPhotos"
                     :key="photo.imageUrl || index"
                     class="photo-item"
                     type="button"
@@ -927,6 +819,34 @@ onUnmounted(() => {
                       @error="handleImageError"
                       @load="handleImageLoad"
                     />
+                  </button>
+                  <!-- Special "View All Photos" button -->
+                  <button
+                    v-if="hasMorePhotos"
+                    class="photo-item photo-item-view-all"
+                    type="button"
+                    @click="showAllPhotosModal = true"
+                    @keydown.enter.prevent="showAllPhotosModal = true"
+                    @keydown.space.prevent="showAllPhotosModal = true"
+                  >
+                    <div class="photo-view-all-content">
+                      <svg
+                        width="32"
+                        height="32"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                      >
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                        <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                        <polyline points="21 15 16 10 5 21"></polyline>
+                      </svg>
+                      <span class="photo-view-all-text">View All</span>
+                      <span class="photo-view-all-count">
+                        {{ remainingPhotosCount }} more
+                      </span>
+                    </div>
                   </button>
                 </div>
               </div>
@@ -1062,6 +982,74 @@ onUnmounted(() => {
               <p v-if="photoUploadError" class="modal-error-text">
                 {{ photoUploadError }}
               </p>
+            </div>
+          </div>
+        </div>
+      </transition>
+
+      <!-- View All Photos Modal -->
+      <transition name="modal">
+        <div
+          v-if="showAllPhotosModal"
+          class="modal-overlay"
+          @click="showAllPhotosModal = false"
+        >
+          <div class="modal-container modal-container-large" @click.stop>
+            <div class="modal-header">
+              <h2 class="modal-title">All Photos</h2>
+              <button
+                @click="showAllPhotosModal = false"
+                class="modal-close"
+                aria-label="Close modal"
+              >
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+            <div class="modal-content modal-content-scrollable">
+              <div v-if="photos.length === 0" class="empty-photos-list">
+                <p>No photos yet. Add your first memory!</p>
+              </div>
+              <div v-else class="all-photos-grid">
+                <button
+                  v-for="(photo, index) in photos"
+                  :key="photo.imageUrl || index"
+                  class="photo-item photo-item-modal"
+                  type="button"
+                  @click="
+                    showAllPhotosModal = false;
+                    openGallery(index);
+                  "
+                  @keydown.enter.prevent="
+                    showAllPhotosModal = false;
+                    openGallery(index);
+                  "
+                  @keydown.space.prevent="
+                    showAllPhotosModal = false;
+                    openGallery(index);
+                  "
+                >
+                  <img
+                    :src="photo.imageUrl"
+                    :alt="
+                      'Photo uploaded on ' +
+                      new Date(photo.uploadDate).toLocaleDateString()
+                    "
+                    class="photo-item-image"
+                    @error="handleImageError"
+                    @load="handleImageLoad"
+                  />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1243,6 +1231,24 @@ onUnmounted(() => {
         role="dialog"
       >
         <div class="photo-lightbox-dialog">
+          <button
+            class="photo-lightbox-close"
+            type="button"
+            @click="closeGallery"
+            aria-label="Close gallery"
+          >
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
           <div class="photo-lightbox-topbar">
             <div class="photo-lightbox-meta">
               <span class="photo-lightbox-label">Memory Gallery</span>
@@ -1250,24 +1256,6 @@ onUnmounted(() => {
                 {{ activePhotoIndex + 1 }} / {{ photos.length }}
               </span>
             </div>
-            <button
-              class="photo-lightbox-close"
-              type="button"
-              @click="closeGallery"
-              aria-label="Close gallery"
-            >
-              <svg
-                width="22"
-                height="22"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            </button>
           </div>
 
           <div class="photo-lightbox-main">
@@ -1312,28 +1300,38 @@ onUnmounted(() => {
             </button>
           </div>
 
-          <div class="photo-lightbox-thumbs" v-if="photos.length > 1">
-            <button
-              v-for="(photo, index) in photos"
-              :key="photo.imageUrl || index"
-              type="button"
-              class="photo-lightbox-thumb"
-              :class="{
-                'photo-lightbox-thumb-active': index === activePhotoIndex
-              }"
-              @click.stop="setActivePhoto(index)"
-            >
-              <img
-                :src="photo.imageUrl"
-                :alt="
-                  'Thumbnail ' +
-                  (index + 1) +
-                  ' of ' +
-                  photos.length +
-                  ' in memory gallery'
-                "
-              />
-            </button>
+          <div v-if="photos.length > 1" class="photo-lightbox-thumbs-container">
+            <div class="photo-lightbox-thumbs-header">
+              <span class="photo-lightbox-thumbs-title">Memory Gallery</span>
+              <span class="photo-lightbox-thumbs-counter">
+                {{ activePhotoIndex + 1 }} / {{ photos.length }}
+              </span>
+            </div>
+            <div class="photo-lightbox-thumbs-wrapper">
+              <div class="photo-lightbox-thumbs">
+                <button
+                  v-for="(photo, index) in photos"
+                  :key="photo.imageUrl || index"
+                  type="button"
+                  class="photo-lightbox-thumb"
+                  :class="{
+                    'photo-lightbox-thumb-active': index === activePhotoIndex
+                  }"
+                  @click.stop="setActivePhoto(index)"
+                >
+                  <img
+                    :src="photo.imageUrl"
+                    :alt="
+                      'Thumbnail ' +
+                      (index + 1) +
+                      ' of ' +
+                      photos.length +
+                      ' in memory gallery'
+                    "
+                  />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1343,7 +1341,7 @@ onUnmounted(() => {
 
 <style scoped>
 /* Page blur when lightbox is open */
-.page-content {
+.relationship-page-content {
   transition:
     filter 0.22s ease,
     transform 0.22s ease,
@@ -1607,8 +1605,8 @@ onUnmounted(() => {
 /* Photo Board clickable items */
 .photo-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
 }
 
 .photo-item {
@@ -1642,8 +1640,68 @@ onUnmounted(() => {
 .photo-item-image {
   display: block;
   width: 100%;
-  height: 110px;
+  height: 140px;
   object-fit: cover;
+}
+
+/* View All Photos button */
+.photo-item-view-all {
+  background: linear-gradient(135deg, #ec4899 0%, #f97316 100%);
+  border: 2px dashed rgba(255, 255, 255, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 140px;
+}
+
+.photo-item-view-all:hover {
+  background: linear-gradient(135deg, #db2777 0%, #ea580c 100%);
+  border-color: rgba(255, 255, 255, 0.6);
+  transform: translateY(-2px) scale(1.01);
+}
+
+.photo-view-all-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  color: #ffffff;
+}
+
+.photo-view-all-content svg {
+  color: #ffffff;
+  opacity: 0.95;
+}
+
+.photo-view-all-text {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.photo-view-all-count {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* All Photos Modal Grid */
+.all-photos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px;
+  padding: 4px;
+}
+
+.photo-item-modal {
+  min-height: 140px;
+}
+
+.empty-photos-list {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: #6b7280;
 }
 
 /* Photo Lightbox / Gallery */
@@ -1651,11 +1709,15 @@ onUnmounted(() => {
   position: fixed;
   inset: 0;
   z-index: 60;
-  padding: 16px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  /* Align with main content area (accounting for sidebar ~280px + navbar ~100px) */
+  padding-top: calc(100px + 2rem);
+  padding-left: calc(280px + 2rem);
+  padding-right: 2rem;
+  padding-bottom: 2rem;
   /* Let underlying page show through with a light, frosted veil */
   background: radial-gradient(
       circle at top center,
@@ -1665,14 +1727,26 @@ onUnmounted(() => {
   backdrop-filter: blur(22px);
 }
 
+@media (max-width: 1024px) {
+  .photo-lightbox-overlay {
+    padding: calc(100px + 1rem) 1rem 1rem;
+    align-items: center;
+  }
+}
+
 .photo-lightbox-dialog {
   width: 100%;
-  max-width: 1120px;
-  max-height: 90vh;
+  max-width: calc(100vw - 280px - 4rem);
+  max-height: calc(100vh - 80px - 4rem);
   border-radius: 26px;
-  padding: 16px 18px 18px;
+  padding: 20px 24px 24px;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  margin: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
 
   /* light glass card to fit app theme */
   background: linear-gradient(
@@ -1688,6 +1762,13 @@ onUnmounted(() => {
   backdrop-filter: blur(16px) saturate(140%);
 }
 
+@media (max-width: 1024px) {
+  .photo-lightbox-dialog {
+    max-width: calc(100vw - 1rem);
+    max-height: calc(100vh - 80px - 1rem);
+  }
+}
+
 .photo-lightbox-topbar {
   display: flex;
   align-items: center;
@@ -1695,6 +1776,7 @@ onUnmounted(() => {
   gap: 12px;
   margin-bottom: 8px;
   color: #111827;
+  width: 100%;
 }
 
 .photo-lightbox-meta {
@@ -1717,6 +1799,10 @@ onUnmounted(() => {
 }
 
 .photo-lightbox-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.55);
   background: rgba(15, 23, 42, 0.7);
@@ -1748,16 +1834,24 @@ onUnmounted(() => {
   justify-content: center;
   gap: 16px;
   min-height: 0;
-  margin-top: 8px;
+  margin-top: 20px;
+  margin-bottom: 24px;
+  overflow: visible;
+  position: relative;
+  width: 100%;
 }
 
 .photo-lightbox-figure {
   position: relative;
   border-radius: 20px;
-  overflow: hidden;
-  max-width: 980px;
-  width: 100%;
-  max-height: min(64vh, 620px);
+  overflow: visible;
+  max-width: calc(100% - 160px);
+  width: auto;
+  max-height: calc(100vh - 80px - 4rem - 260px);
+  height: auto;
+  min-height: 0;
+  margin: 0 auto;
+  flex-shrink: 0;
   box-shadow:
     0 22px 45px rgba(15, 23, 42, 0.6),
     0 0 0 1px rgba(148, 163, 184, 0.7);
@@ -1766,12 +1860,19 @@ onUnmounted(() => {
     rgba(15, 23, 42, 0.98),
     rgba(3, 7, 18, 1)
   );
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .photo-lightbox-figure img {
-  width: 100%;
-  height: 100%;
+  max-width: 100%;
+  max-height: calc(100vh - 80px - 4rem - 260px);
+  width: auto;
+  height: auto;
   object-fit: contain;
+  display: block;
+  margin: 0 auto;
   background: radial-gradient(
     circle at center,
     rgba(15, 23, 42, 0.9),
@@ -1815,6 +1916,10 @@ onUnmounted(() => {
 }
 
 .photo-lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 5;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.7);
   background: rgba(255, 255, 255, 0.96);
@@ -1828,9 +1933,10 @@ onUnmounted(() => {
   font-size: 0.95rem;
   transition:
     background 0.16s ease,
-    transform 0.12s ease,
+    transform 0.16s ease,
     box-shadow 0.16s ease,
     border-color 0.16s ease;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.2);
 }
 
 .photo-lightbox-nav span {
@@ -1844,34 +1950,113 @@ onUnmounted(() => {
     rgba(249, 250, 251, 1)
   );
   border-color: rgba(249, 115, 22, 0.9);
-  transform: translateY(-1px);
+  transform: translateY(-50%) translateY(-1px);
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.35);
 }
 
 .photo-lightbox-nav-prev {
-  margin-right: -4px;
+  left: 12px;
 }
 
 .photo-lightbox-nav-next {
-  margin-left: -4px;
+  right: 12px;
+}
+
+.photo-lightbox-thumbs-container {
+  margin-top: 24px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0;
+  flex-shrink: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.photo-lightbox-thumbs-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 0;
+  width: 100%;
+}
+
+.photo-lightbox-thumbs-wrapper {
+  width: 100%;
+  display: flex;
+  justify-content: flex-start;
+  overflow: visible;
+  position: relative;
+}
+
+.photo-lightbox-thumbs-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #6b7280;
+}
+
+.photo-lightbox-thumbs-counter {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #111827;
+  background: rgba(236, 72, 153, 0.1);
+  padding: 4px 10px;
+  border-radius: 12px;
 }
 
 .photo-lightbox-thumbs {
-  margin-top: 12px;
   display: flex;
-  gap: 8px;
+  gap: 12px;
   overflow-x: auto;
-  padding-bottom: 4px;
-  justify-content: center;
+  overflow-y: hidden;
+  padding: 8px 0 12px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
+  scroll-behavior: smooth;
+  scroll-snap-type: x proximity;
+}
+
+/* Center the thumbnails content */
+.photo-lightbox-thumbs > * {
+  flex-shrink: 0;
 }
 
 .photo-lightbox-thumb {
-  border-radius: 12px;
-  border: 1px solid transparent;
-  padding: 0;
+  scroll-snap-align: center;
+}
+
+.photo-lightbox-thumbs::-webkit-scrollbar {
+  height: 6px;
+}
+
+.photo-lightbox-thumbs::-webkit-scrollbar-track {
   background: transparent;
-  width: 60px;
-  height: 56px;
+}
+
+.photo-lightbox-thumbs::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 3px;
+}
+
+.photo-lightbox-thumbs::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
+}
+
+.photo-lightbox-thumb {
+  border-radius: 14px;
+  border: 2px solid transparent;
+  padding: 0;
+  background: rgba(248, 250, 252, 0.6);
+  width: 80px;
+  height: 80px;
   overflow: hidden;
   cursor: pointer;
   flex: 0 0 auto;
@@ -1882,7 +2067,8 @@ onUnmounted(() => {
     opacity 0.16s ease,
     transform 0.12s ease,
     border-color 0.16s ease,
-    box-shadow 0.16s ease;
+    box-shadow 0.16s ease,
+    background 0.16s ease;
 }
 
 .photo-lightbox-thumb img {
@@ -1915,14 +2101,21 @@ onUnmounted(() => {
 }
 
 .photo-lightbox-thumb:hover {
-  opacity: 0.9;
-  transform: translateY(-1px);
+  opacity: 1;
+  transform: translateY(-2px) scale(1.05);
+  border-color: rgba(236, 72, 153, 0.4);
+  box-shadow: 0 4px 12px rgba(236, 72, 153, 0.25);
+  background: rgba(255, 255, 255, 0.9);
 }
 
 .photo-lightbox-thumb-active {
   opacity: 1;
-  border-color: rgba(249, 250, 251, 0.95);
-  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.9);
+  border-color: rgba(236, 72, 153, 0.7);
+  box-shadow: 
+    0 0 0 2px rgba(236, 72, 153, 0.3),
+    0 4px 16px rgba(236, 72, 153, 0.35);
+  background: rgba(255, 255, 255, 1);
+  transform: translateY(-2px) scale(1.08);
 }
 
 /* Lightbox transition */
@@ -1946,6 +2139,8 @@ onUnmounted(() => {
 
   .photo-lightbox-main {
     gap: 8px;
+    margin-top: 12px;
+    margin-bottom: 12px;
   }
 
   .photo-lightbox-nav {
@@ -1953,8 +2148,22 @@ onUnmounted(() => {
   }
 
   .photo-lightbox-figure {
-    max-height: 60vh;
+    max-width: 90%;
+    max-height: calc(100vh - 200px);
     border-radius: 18px;
+  }
+  
+  .photo-lightbox-figure img {
+    max-height: calc(100vh - 220px);
+  }
+  
+  .photo-lightbox-thumbs-container {
+    margin-top: 16px;
+  }
+  
+  .photo-lightbox-close {
+    top: 8px;
+    right: 8px;
   }
 
   .photo-lightbox-thumbs {

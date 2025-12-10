@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import {
   profileApi,
   sessionManager,
   relationshipApi,
   occasionsApi,
-  collaboratorsApi,
 } from "../api";
 import { nameToSlug } from "../utils";
 import FeedbackModal from "../components/FeedbackModal.vue";
@@ -24,25 +23,7 @@ const userProfile = ref<{
 const allRelationships = ref<any[]>([]);
 const pinnedRelationships = ref<any[]>([]);
 const occasions = ref<any[]>([]);
-const showUserMenu = ref(false);
 const isLoadingRelationships = ref(false);
-
-// Invitations inbox (loaded from backend)
-const showInvitesMenu = ref(false);
-const invitations = ref<
-  Array<{
-    id: string;
-    invitePayload: any;
-    toUsername: string;
-    createdAt: string;
-    status: "pending" | "accepted" | "error";
-    errorMessage?: string;
-  }>
->([]);
-
-const pendingInvitationsCount = computed(
-  () => invitations.value.filter((i) => i.status === "pending").length
-);
 
 // Shared feedback modal for this view
 const {
@@ -73,20 +54,6 @@ const occasionFormErrors = ref({
   relationship: "",
 });
 
-// Get user's first name from profile
-const getUserFirstName = computed(() => {
-  if (userProfile.value?.name) {
-    const firstName = userProfile.value.name.split(" ")[0];
-    return (
-      firstName ||
-      userProfile.value.name ||
-      userProfile.value.username ||
-      "User"
-    );
-  }
-  return userProfile.value?.username || currentUser.value?.username || "User";
-});
-
 // Display pinned relationships on dashboard
 const displayedRelationships = computed(() => {
   return pinnedRelationships.value;
@@ -97,68 +64,9 @@ const hasMoreRelationships = computed(() => {
   return allRelationships.value.length > pinnedRelationships.value.length;
 });
 
-// Load incoming invitations for the current user from backend
-const loadInvitations = async () => {
-  try {
-    console.log("[Dashboard] Loading incoming invites...");
-    const backendInvites = await collaboratorsApi.getIncomingInvites();
-    console.log("[Dashboard] Received invites from API:", backendInvites);
-
-    // Resolve sender usernames
-    const invitesWithUsernames = await Promise.all(
-      (backendInvites || [])
-        .filter((inv: any) => inv.status === "pending")
-        .map(async (inv: any) => {
-          const rawInvite = inv.invite;
-          const sender = inv.sender;
-          let username = "someone";
-
-          // If sender is a string (user ID), look up the profile
-          if (typeof sender === "string") {
-            try {
-              const profile = await profileApi.getProfile({
-                id: sender,
-                username: sender,
-              });
-              username = profile.username || profile.name || sender;
-            } catch (error) {
-              console.warn(
-                "[Dashboard] Failed to look up sender profile:",
-                sender,
-                error
-              );
-              username = sender; // Fallback to showing the ID
-            }
-          } else if (sender?.username) {
-            username = sender.username;
-          } else if (sender?.name) {
-            username = sender.name;
-          }
-
-          return {
-            id: String(rawInvite?.id ?? rawInvite ?? inv.id ?? ""),
-            invitePayload: rawInvite,
-            toUsername: username,
-            createdAt: inv.createdAt,
-            status: "pending" as const,
-          };
-        })
-    );
-
-    invitations.value = invitesWithUsernames;
-  } catch (error) {
-    console.error("Failed to load collaborator invitations:", error);
-    invitations.value = [];
-  }
-};
-
-const handleAcceptInvite = async (
-  invite: (typeof invitations.value)[number]
-) => {
-  try {
-    await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id);
-    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
-
+// Listen for invite accepted events from Layout
+onMounted(() => {
+  window.addEventListener('invite-accepted', async () => {
     // Reload occasions to show the newly accepted occasion immediately
     if (currentUser.value) {
       try {
@@ -190,31 +98,8 @@ const handleAcceptInvite = async (
         );
       }
     }
-  } catch (error: any) {
-    console.error("Error accepting invitation:", error);
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Failed to accept invitation. Please try again.";
-    openErrorModal(message, "Could not accept invitation");
-  }
-};
-
-const handleDeclineInvite = async (
-  invite: (typeof invitations.value)[number]
-) => {
-  try {
-    await collaboratorsApi.declineInvite(invite.id);
-    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
-  } catch (error: any) {
-    console.error("Error declining invitation:", error);
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Failed to decline invitation. Please try again.";
-    openErrorModal(message, "Could not decline invitation");
-  }
-};
+  });
+});
 
 // Helper function to normalize date to start of day for comparison
 const normalizeToDay = (date: Date): Date => {
@@ -352,18 +237,6 @@ const loadDashboardData = async () => {
   }
 };
 
-// Logout function
-const handleLogout = async () => {
-  sessionManager.clearUser();
-  currentUser.value = null;
-  userProfile.value = null;
-  allRelationships.value = [];
-  pinnedRelationships.value = [];
-  occasions.value = [];
-  showUserMenu.value = false;
-  // Use replace to ensure navigation and redirect to login page
-  router.replace("/");
-};
 
 // Format time until event
 const getTimeUntilEvent = (date: Date | string): string => {
@@ -604,170 +477,22 @@ const handleCardClick = (relationship: any) => {
   }
 };
 
-// Close user menu when clicking outside
-const handleClickOutside = (event: MouseEvent) => {
-  const target = event.target as HTMLElement;
-  if (!target.closest(".user-menu-wrapper")) {
-    showUserMenu.value = false;
-  }
-  if (!target.closest(".navbar-mail-wrapper")) {
-    showInvitesMenu.value = false;
-  }
-};
-
 onMounted(async () => {
   const savedUser = sessionManager.getUser();
   if (savedUser) {
     currentUser.value = savedUser;
-    await loadInvitations();
     await loadDashboardData();
   } else {
     router.push("/");
   }
-
-  document.addEventListener("click", handleClickOutside);
-});
-
-onUnmounted(() => {
-  document.removeEventListener("click", handleClickOutside);
 });
 </script>
 
 <template>
   <div class="dashboard-page">
     <div class="dashboard-container">
-      <!-- Header Bar -->
-      <header class="dashboard-header">
-        <div class="dashboard-header-content">
-          <div class="dashboard-logo">
-            <img src="/momento-logo.png" alt="Momento" class="logo-image" />
-            <span class="logo-text">Momento</span>
-          </div>
-          <div class="navbar-right">
-            <div class="navbar-mail-wrapper">
-              <button
-                @click.stop="showInvitesMenu = !showInvitesMenu"
-                class="navbar-mail-button"
-                :aria-expanded="showInvitesMenu"
-                aria-label="Collaboration invitations"
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <rect x="3" y="5" width="18" height="14" rx="2" ry="2" />
-                  <polyline points="3 7 12 13 21 7" />
-                </svg>
-                <span
-                  v-if="pendingInvitationsCount > 0"
-                  class="navbar-mail-badge"
-                >
-                  {{ pendingInvitationsCount }}
-                </span>
-              </button>
-              <div
-                v-if="showInvitesMenu"
-                class="navbar-mail-dropdown"
-                @click.stop
-              >
-                <div class="navbar-mail-header">Invitations</div>
-                <div v-if="!invitations.length" class="navbar-mail-empty">
-                  No invitations yet.
-                </div>
-                <div v-else class="navbar-mail-list">
-                  <div
-                    v-for="invite in invitations"
-                    :key="invite.id"
-                    class="navbar-mail-item"
-                  >
-                    <div class="navbar-mail-line">
-                      <span class="navbar-mail-username">
-                        @{{ invite.toUsername }}
-                      </span>
-                      <span
-                        class="navbar-mail-status"
-                        :class="[
-                          invite.status === 'pending' && 'status-pending',
-                          invite.status === 'accepted' && 'status-accepted',
-                          invite.status === 'error' && 'status-error',
-                        ]"
-                      >
-                        {{
-                          invite.status === "pending"
-                            ? "Pending"
-                            : invite.status === "accepted"
-                            ? "Accepted"
-                            : "Error"
-                        }}
-                      </span>
-                    </div>
-                    <div class="navbar-mail-date">
-                      {{ new Date(invite.createdAt).toLocaleDateString() }}
-                    </div>
-                    <div class="navbar-mail-actions">
-                      <button
-                        class="navbar-mail-action-accept"
-                        @click="handleAcceptInvite(invite)"
-                      >
-                        Accept
-                      </button>
-                      <button
-                        class="navbar-mail-action-decline"
-                        @click="handleDeclineInvite(invite)"
-                      >
-                        Decline
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="user-menu-wrapper">
-              <button
-                @click.stop="showUserMenu = !showUserMenu"
-                class="user-menu-trigger"
-                :aria-expanded="showUserMenu"
-                aria-label="User menu"
-              >
-                <span class="user-greeting">Hi {{ getUserFirstName }}!</span>
-                <div class="user-avatar">
-                  <span class="avatar-initial">
-                    {{ getUserFirstName.charAt(0).toUpperCase() }}
-                  </span>
-                </div>
-              </button>
-              <div v-if="showUserMenu" class="user-menu-dropdown" @click.stop>
-                <button
-                  class="menu-item menu-item-danger"
-                  @click="handleLogout"
-                >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                  >
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                    <polyline points="16 17 21 12 16 7"></polyline>
-                    <line x1="21" y1="12" x2="9" y2="12"></line>
-                  </svg>
-                  Log Out
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
-
       <!-- Main Content -->
-      <main class="dashboard-main">
-        <div class="dashboard-content">
+      <div class="dashboard-content">
           <!-- Your People Section -->
           <section class="dashboard-section">
             <div class="section-header">
@@ -945,7 +670,6 @@ onUnmounted(() => {
             </div>
           </section>
         </div>
-      </main>
     </div>
 
     <!-- Create Occasion Modal -->

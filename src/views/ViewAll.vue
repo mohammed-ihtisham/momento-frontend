@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import {
   sessionManager,
@@ -21,24 +21,6 @@ const userProfile = ref<{
 const allRelationships = ref<any[]>([]);
 const pinnedRelationships = ref<any[]>([]);
 const isLoading = ref(true);
-const showUserMenu = ref(false);
-
-// Invitations dropdown (inbox)
-const showInvitesMenu = ref(false);
-const invitations = ref<
-  Array<{
-    id: string;
-    invitePayload: any;
-    toUsername: string;
-    createdAt: string;
-    status: "pending" | "accepted" | "error";
-    errorMessage?: string;
-  }>
->([]);
-
-// const pendingInvitationsCount = computed(
-//   () => invitations.value.filter((i) => i.status === "pending").length
-// );
 
 // Drag and drop state
 const draggedItem = ref<{
@@ -53,46 +35,6 @@ const justDropped = ref(false);
 
 const MAX_PINNED = 7;
 
-// Get user's first name from profile
-const getUserFirstName = computed(() => {
-  if (userProfile.value?.name) {
-    const firstName = userProfile.value.name.split(" ")[0];
-    return (
-      firstName ||
-      userProfile.value.name ||
-      userProfile.value.username ||
-      "User"
-    );
-  }
-  return userProfile.value?.username || currentUser.value?.username || "User";
-});
-
-// Load incoming invitations for the current user from backend
-const loadInvitations = async () => {
-  try {
-    // const backendInvites = await collaboratorsApi.getIncomingInvites()
-    // invitations.value = (backendInvites || [])
-    //   .filter((inv: any) => inv.status === 'pending')
-    //   .map((inv: any) => {
-    //     const rawInvite = inv.invite
-    //     const sender = inv.sender
-    //     const username =
-    //       typeof sender === 'string'
-    //         ? sender
-    //         : sender?.username || sender?.name || 'someone'
-    //     return {
-    //       id: String(rawInvite?.id ?? rawInvite ?? inv.id ?? ''),
-    //       invitePayload: rawInvite,
-    //       toUsername: username,
-    //       createdAt: inv.createdAt,
-    //       status: 'pending' as const,
-    //     }
-    //   })
-  } catch (error) {
-    console.error("Failed to load collaborator invitations:", error);
-    invitations.value = [];
-  }
-};
 
 // const handleAcceptInvite = async (
 //   invite: (typeof invitations.value)[number]
@@ -216,24 +158,6 @@ const loadUserProfile = async () => {
   } catch (error) {
     console.error("Error loading profile:", error);
   }
-};
-
-// Handle back navigation (return to previous page when possible)
-const handleBack = () => {
-  if (window.history.length > 1) {
-    router.back();
-  } else {
-    router.push("/");
-  }
-};
-
-// Logout function
-const handleLogout = async () => {
-  sessionManager.clearUser();
-  currentUser.value = null;
-  userProfile.value = null;
-  showUserMenu.value = false;
-  router.replace("/");
 };
 
 // Drag and drop handlers
@@ -363,15 +287,8 @@ const handleCardClick = (relationship: any) => {
   }
 };
 
-// Close user menu when clicking outside
-const handleClickOutside = (event: MouseEvent) => {
-  const target = event.target as HTMLElement;
-  if (!target.closest(".user-menu-wrapper")) {
-    showUserMenu.value = false;
-  }
-  if (!target.closest(".navbar-mail-wrapper")) {
-    showInvitesMenu.value = false;
-  }
+const handleAddProfile = () => {
+  router.push("/add-profile");
 };
 
 onMounted(async () => {
@@ -384,160 +301,11 @@ onMounted(async () => {
   currentUser.value = savedUser;
   await loadUserProfile();
   await loadRelationships();
-  await loadInvitations();
-
-  document.addEventListener("click", handleClickOutside);
-});
-
-onUnmounted(() => {
-  document.removeEventListener("click", handleClickOutside);
 });
 </script>
 
 <template>
   <div class="view-all-page">
-    <!-- Header Bar -->
-    <header class="relationship-detail-header">
-      <div class="relationship-detail-header-content">
-        <div class="relationship-detail-logo">
-          <button
-            @click="handleBack"
-            class="back-button-inline"
-            aria-label="Go back"
-          >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <polyline points="15 18 9 12 15 6"></polyline>
-            </svg>
-          </button>
-          <img src="/momento-logo.png" alt="Momento" class="logo-image" />
-          <span class="logo-text">Momento</span>
-        </div>
-        <div class="navbar-right">
-          <!-- <div class="navbar-mail-wrapper">
-            <button
-              @click.stop="showInvitesMenu = !showInvitesMenu"
-              class="navbar-mail-button"
-              :aria-expanded="showInvitesMenu"
-              aria-label="Collaboration invitations"
-            >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <rect x="3" y="5" width="18" height="14" rx="2" ry="2" />
-                <polyline points="3 7 12 13 21 7" />
-              </svg>
-              <span
-                v-if="pendingInvitationsCount > 0"
-                class="navbar-mail-badge"
-              >
-                {{ pendingInvitationsCount }}
-              </span>
-            </button>
-            <div
-              v-if="showInvitesMenu"
-              class="navbar-mail-dropdown"
-              @click.stop
-            >
-              <div class="navbar-mail-header">Invitations</div>
-              <div v-if="!invitations.length" class="navbar-mail-empty">
-                No invitations yet.
-              </div>
-              <div v-else class="navbar-mail-list">
-                <div
-                  v-for="invite in invitations"
-                  :key="invite.id"
-                  class="navbar-mail-item"
-                >
-                  <div class="navbar-mail-line">
-                    <span class="navbar-mail-username">
-                      @{{ invite.toUsername }}
-                    </span>
-                    <span
-                      class="navbar-mail-status"
-                      :class="[
-                        invite.status === 'pending' && 'status-pending',
-                        invite.status === 'accepted' && 'status-accepted',
-                        invite.status === 'error' && 'status-error',
-                      ]"
-                    >
-                      {{
-                        invite.status === "pending"
-                          ? "Pending"
-                          : invite.status === "accepted"
-                          ? "Accepted"
-                          : "Error"
-                      }}
-                    </span>
-                  </div>
-                  <div class="navbar-mail-date">
-                    {{ new Date(invite.createdAt).toLocaleDateString() }}
-                  </div>
-                  <div class="navbar-mail-actions">
-                    <button
-                      class="navbar-mail-action-accept"
-                      @click="handleAcceptInvite(invite)"
-                    >
-                      Accept
-                    </button>
-                    <button
-                      class="navbar-mail-action-decline"
-                      @click="handleDeclineInvite(invite)"
-                    >
-                      Decline
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div> -->
-          <div class="user-menu-wrapper">
-            <button
-              @click.stop="showUserMenu = !showUserMenu"
-              class="user-menu-trigger"
-              :aria-expanded="showUserMenu"
-              aria-label="User menu"
-            >
-              <span class="user-greeting">Hi {{ getUserFirstName }}!</span>
-              <div class="user-avatar">
-                <span class="avatar-initial">
-                  {{ getUserFirstName.charAt(0).toUpperCase() }}
-                </span>
-              </div>
-            </button>
-            <div v-if="showUserMenu" class="user-menu-dropdown" @click.stop>
-              <button class="menu-item menu-item-danger" @click="handleLogout">
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                  <polyline points="16 17 21 12 16 7"></polyline>
-                  <line x1="21" y1="12" x2="9" y2="12"></line>
-                </svg>
-                Log Out
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </header>
-
     <!-- Main Content -->
     <main class="view-all-main">
       <div v-if="isLoading" class="loading-state-full">
@@ -736,6 +504,27 @@ onUnmounted(() => {
         <section class="all-relationships-section">
           <h2 class="section-title-view-all">All Relationships</h2>
           <div class="relationships-grid">
+            <!-- Add Relationship Card (first card) -->
+            <div
+              @click="handleAddProfile"
+              class="relationship-card-view-all add-card"
+            >
+              <div class="add-card-content">
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                <span>Add Profile</span>
+              </div>
+            </div>
+
             <div
               v-for="(relationship, index) in unpinnedRelationships"
               :key="relationship.id"

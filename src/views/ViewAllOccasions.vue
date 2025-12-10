@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import {
   sessionManager,
   relationshipApi,
   profileApi,
   occasionsApi,
-  collaboratorsApi,
 } from "../api";
 import FeedbackModal from "../components/FeedbackModal.vue";
 import { useFeedbackModal } from "../useFeedbackModal";
@@ -36,24 +35,6 @@ const occasions = ref<
   }>
 >([]);
 const isLoading = ref(true);
-const showUserMenu = ref(false);
-
-// Invitations dropdown (inbox)
-const showInvitesMenu = ref(false);
-const invitations = ref<
-  Array<{
-    id: string;
-    invitePayload: any;
-    toUsername: string;
-    createdAt: string;
-    status: "pending" | "accepted" | "error";
-    errorMessage?: string;
-  }>
->([]);
-
-const pendingInvitationsCount = computed(
-  () => invitations.value.filter((i) => i.status === "pending").length
-);
 
 // Shared feedback modal for this view
 const {
@@ -61,19 +42,15 @@ const {
   feedbackTitle,
   feedbackMessage,
   feedbackVariant,
-  openErrorModal,
 } = useFeedbackModal();
 
 // Modal state
 const showCreateModal = ref(false);
-const showEditModal = ref(false);
 const showDeleteModal = ref(false);
-const editingOccasion = ref<any>(null);
 const deletingOccasion = ref<any>(null);
 
 // Inline error messaging for CRUD modals
 const createOccasionError = ref("");
-const editOccasionError = ref("");
 const deleteOccasionError = ref("");
 
 // Form state
@@ -95,87 +72,6 @@ const sortBy = ref<"date-asc" | "date-desc" | "name-asc" | "name-desc">(
 );
 const searchQuery = ref("");
 
-// Get user's first name from profile
-const getUserFirstName = computed(() => {
-  if (userProfile.value?.name) {
-    const firstName = userProfile.value.name.split(" ")[0];
-    return (
-      firstName ||
-      userProfile.value.name ||
-      userProfile.value.username ||
-      "User"
-    );
-  }
-  return userProfile.value?.username || currentUser.value?.username || "User";
-});
-
-// Load incoming invitations for the current user from backend
-const loadInvitations = async () => {
-  try {
-    const backendInvites = await collaboratorsApi.getIncomingInvites()
-    invitations.value = (backendInvites || [])
-      .filter((inv: any) => inv.status === 'pending')
-      .map((inv: any) => {
-        const rawInvite = inv.invite
-        const sender = inv.sender
-        const username =
-          typeof sender === 'string'
-            ? sender
-            : sender?.username || sender?.name || 'someone'
-        return {
-          id: String(rawInvite?.id ?? rawInvite ?? inv.id ?? ''),
-          invitePayload: rawInvite,
-          toUsername: username,
-          createdAt: inv.createdAt,
-          status: 'pending' as const,
-        }
-      })
-  } catch (error) {
-    console.error("Failed to load collaborator invitations:", error);
-    invitations.value = [];
-  }
-};
-
-const handleAcceptInvite = async (
-  invite: (typeof invitations.value)[number]
-) => {
-  try {
-    await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id);
-    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
-    
-    // Reload occasions to show the newly accepted occasion immediately
-    if (currentUser.value) {
-      try {
-        await loadOccasions();
-      } catch (error) {
-        console.error("Error reloading occasions after accepting invite:", error);
-      }
-    }
-  } catch (error: any) {
-    console.error("Error accepting invitation:", error);
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Failed to accept invitation. Please try again.";
-    openErrorModal(message, "Could not accept invitation");
-  }
-};
-
-const handleDeclineInvite = async (
-  invite: (typeof invitations.value)[number]
-) => {
-  try {
-    await collaboratorsApi.declineInvite(invite.id);
-    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
-  } catch (error: any) {
-    console.error("Error declining invitation:", error);
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Failed to decline invitation. Please try again.";
-    openErrorModal(message, "Could not decline invitation");
-  }
-};
 
 // Get unique person names for filter
 const relationshipNames = computed(() => {
@@ -229,21 +125,122 @@ const filteredOccasions = computed(() => {
   return filtered;
 });
 
-// Group occasions by person (for organized view)
-const occasionsByPerson = computed(() => {
-  const grouped: Record<string, typeof occasions.value> = {};
+
+// View mode: 'list' or 'calendar'
+const viewMode = ref<"list" | "calendar">("calendar");
+
+// Calendar state
+const currentMonth = ref(new Date());
+const selectedDate = ref<Date | null>(new Date()); // Auto-select today by default
+const occasionsByDate = computed(() => {
+  const map: Record<string, typeof occasions.value> = {};
   filteredOccasions.value.forEach((occ) => {
-    const personName = occ.relationshipName || occ.person || "Unknown";
-    if (!grouped[personName]) {
-      grouped[personName] = [];
+    const dateKey = formatDateForCalendar(new Date(occ.date));
+    if (!map[dateKey]) {
+      map[dateKey] = [];
     }
-    grouped[personName].push(occ);
+    map[dateKey].push(occ);
   });
-  return grouped;
+  return map;
 });
 
-// View mode: 'list' or 'grouped'
-const viewMode = ref<"list" | "grouped">("list");
+// Calendar helper functions
+const formatDateForCalendar = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const getDaysInMonth = (date: Date): number => {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+};
+
+const getFirstDayOfMonth = (date: Date): number => {
+  return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+};
+
+const getCalendarDays = (): Array<{ date: Date; isCurrentMonth: boolean; occasions: typeof occasions.value }> => {
+  const year = currentMonth.value.getFullYear();
+  const month = currentMonth.value.getMonth();
+  const daysInMonth = getDaysInMonth(currentMonth.value);
+  const firstDay = getFirstDayOfMonth(currentMonth.value);
+  
+  const days: Array<{ date: Date; isCurrentMonth: boolean; occasions: typeof occasions.value }> = [];
+  
+  // Previous month's trailing days
+  const prevMonth = new Date(year, month - 1, 0);
+  const daysInPrevMonth = prevMonth.getDate();
+  for (let i = firstDay - 1; i >= 0; i--) {
+    const date = new Date(year, month - 1, daysInPrevMonth - i);
+    const dateKey = formatDateForCalendar(date);
+    days.push({
+      date,
+      isCurrentMonth: false,
+      occasions: occasionsByDate.value[dateKey] || [],
+    });
+  }
+  
+  // Current month's days
+  for (let day = 1; day <= daysInMonth; day++) {
+    const date = new Date(year, month, day);
+    const dateKey = formatDateForCalendar(date);
+    days.push({
+      date,
+      isCurrentMonth: true,
+      occasions: occasionsByDate.value[dateKey] || [],
+    });
+  }
+  
+  // Next month's leading days (to fill the grid)
+  const totalCells = days.length;
+  const remainingCells = 42 - totalCells; // 6 weeks * 7 days
+  for (let day = 1; day <= remainingCells; day++) {
+    const date = new Date(year, month + 1, day);
+    const dateKey = formatDateForCalendar(date);
+    days.push({
+      date,
+      isCurrentMonth: false,
+      occasions: occasionsByDate.value[dateKey] || [],
+    });
+  }
+  
+  return days;
+};
+
+const navigateMonth = (direction: "prev" | "next") => {
+  const newDate = new Date(currentMonth.value);
+  if (direction === "prev") {
+    newDate.setMonth(newDate.getMonth() - 1);
+  } else {
+    newDate.setMonth(newDate.getMonth() + 1);
+  }
+  currentMonth.value = newDate;
+};
+
+const goToToday = () => {
+  const today = new Date();
+  currentMonth.value = today;
+  selectedDate.value = today;
+};
+
+const formatMonthYear = (date: Date): string => {
+  return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+};
+
+const isToday = (date: Date): boolean => {
+  const today = new Date();
+  return (
+    date.getDate() === today.getDate() &&
+    date.getMonth() === today.getMonth() &&
+    date.getFullYear() === today.getFullYear()
+  );
+};
+
+const getOccasionsForDate = (date: Date): typeof occasions.value => {
+  const dateKey = formatDateForCalendar(date);
+  return occasionsByDate.value[dateKey] || [];
+};
 
 // Load relationships
 const loadRelationships = async () => {
@@ -312,14 +309,6 @@ const loadUserProfile = async () => {
   }
 };
 
-// Handle back navigation (return to previous page when possible)
-const handleBack = () => {
-  if (window.history.length > 1) {
-    router.back();
-  } else {
-    router.push("/");
-  }
-};
 
 // Navigate to occasion detail
 const viewOccasionDetail = (occasion: any) => {
@@ -327,14 +316,6 @@ const viewOccasionDetail = (occasion: any) => {
   router.push(`/occasion/${occasionId}`);
 };
 
-// Logout function
-const handleLogout = async () => {
-  sessionManager.clearUser();
-  currentUser.value = null;
-  userProfile.value = null;
-  showUserMenu.value = false;
-  router.replace("/");
-};
 
 // Open create modal
 const openCreateModal = () => {
@@ -359,31 +340,6 @@ const closeCreateModal = () => {
   };
 };
 
-// Open edit modal
-const openEditModal = (occasion: any) => {
-  editingOccasion.value = occasion;
-  formName.value = occasion.name;
-  formDate.value = formatDateForInput(occasion.date);
-  formDescription.value = occasion.description || "";
-  // Store the person name so we can send it directly to the Occasion API
-  formRelationship.value = occasion.person || occasion.relationshipName || null;
-  showEditModal.value = true;
-};
-
-// Close edit modal
-const closeEditModal = () => {
-  showEditModal.value = false;
-  editingOccasion.value = null;
-  formName.value = "";
-  formDate.value = "";
-  formDescription.value = "";
-  formRelationship.value = null;
-  formErrors.value = {
-    name: "",
-    date: "",
-    relationship: "",
-  };
-};
 
 // Helper function to parse date string in local timezone (avoids timezone shift)
 const parseLocalDate = (dateString: string): Date => {
@@ -394,14 +350,6 @@ const parseLocalDate = (dateString: string): Date => {
   return new Date(year, month - 1, day);
 };
 
-// Helper function to format date for date input (local timezone)
-const formatDateForInput = (date: Date | string): string => {
-  const d = typeof date === "string" ? new Date(date) : date;
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
 
 // Create occasion
 const handleCreateOccasion = async () => {
@@ -453,55 +401,6 @@ const handleCreateOccasion = async () => {
   }
 };
 
-// Update occasion
-const handleUpdateOccasion = async () => {
-  // Reset errors
-  formErrors.value = {
-    name: "",
-    date: "",
-    relationship: "",
-  };
-
-  // Validate fields
-  let hasErrors = false;
-  if (!formName.value.trim()) {
-    formErrors.value.name = "Please enter an occasion name";
-    hasErrors = true;
-  }
-  if (!formDate.value) {
-    formErrors.value.date = "Please select a date";
-    hasErrors = true;
-  }
-  if (!formRelationship.value) {
-    formErrors.value.relationship = "Please select a person";
-    hasErrors = true;
-  }
-
-  if (hasErrors) {
-    return;
-  }
-
-  try {
-    isSubmitting.value = true;
-    editOccasionError.value = "";
-    await occasionsApi.updateOccasion(
-      editingOccasion.value.occasion,
-      // person
-      formRelationship.value,
-      // occasionType
-      formName.value.trim(),
-      parseLocalDate(formDate.value)
-    );
-    closeEditModal();
-    await loadOccasions();
-  } catch (error: any) {
-    console.error("Error updating occasion:", error);
-    editOccasionError.value =
-      error.message || "Failed to update occasion. Please try again.";
-  } finally {
-    isSubmitting.value = false;
-  }
-};
 
 // Open delete confirmation modal
 const openDeleteModal = (occasion: any) => {
@@ -516,18 +415,37 @@ const closeDeleteModal = () => {
 };
 
 // Delete occasion (after confirmation)
-const handleDeleteOccasion = async () => {
-  if (!deletingOccasion.value) return;
+const handleDeleteOccasion = () => {
+  if (!deletingOccasion.value || !currentUser.value) return;
 
   try {
     deleteOccasionError.value = "";
-    await occasionsApi.deleteOccasion(deletingOccasion.value.occasion);
+    
+    // Get occasion ID for localStorage cleanup
+    const occasionId = deletingOccasion.value.occasion?.id || JSON.stringify(deletingOccasion.value.occasion);
+    const ownerId = currentUser.value.id || currentUser.value.username || "";
+    
+    // Remove from local occasions array
+    const occasionToDelete = deletingOccasion.value;
+    // Use the same unique key logic as the template (occasion.occasion?.id || occasion.name)
+    const deleteKey = occasionToDelete.occasion?.id || occasionToDelete.name;
+    occasions.value = occasions.value.filter((occ) => {
+      const occKey = occ.occasion?.id || occ.name;
+      return occKey !== deleteKey;
+    });
+    
+    // Clean up localStorage entries for this occasion
+    if (ownerId) {
+      const taskPrioritiesKey = `occasion-tasks-priorities-${occasionId}-${ownerId}`;
+      const deletedTasksKey = `occasion-tasks-deleted-${occasionId}-${ownerId}`;
+      localStorage.removeItem(taskPrioritiesKey);
+      localStorage.removeItem(deletedTasksKey);
+    }
+    
     closeDeleteModal();
-    await loadOccasions();
   } catch (error: any) {
-    console.error("Error deleting occasion:", error);
-    deleteOccasionError.value =
-      error.message || "Failed to delete occasion. Please try again.";
+    console.error("Error deleting occasion locally:", error);
+    deleteOccasionError.value = "Failed to delete occasion locally.";
   }
 };
 
@@ -576,17 +494,6 @@ const getDateStatus = (
   return "upcoming";
 };
 
-// Close user menu when clicking outside
-const handleClickOutside = (event: MouseEvent) => {
-  const target = event.target as HTMLElement;
-  if (!target.closest(".user-menu-wrapper")) {
-    showUserMenu.value = false;
-  }
-  if (!target.closest(".navbar-mail-wrapper")) {
-    showInvitesMenu.value = false;
-  }
-};
-
 onMounted(async () => {
   const savedUser = sessionManager.getUser();
   if (!savedUser) {
@@ -598,168 +505,20 @@ onMounted(async () => {
   await loadUserProfile();
   await loadRelationships();
   await loadOccasions();
-  await loadInvitations();
-
-  document.addEventListener("click", handleClickOutside);
-});
-
-onUnmounted(() => {
-  document.removeEventListener("click", handleClickOutside);
 });
 </script>
 
 <template>
   <div class="view-all-occasions-page">
-    <!-- Header Bar -->
-    <header class="relationship-detail-header">
-      <div class="relationship-detail-header-content">
-        <div class="relationship-detail-logo">
-          <button
-            @click="handleBack"
-            class="back-button-inline"
-            aria-label="Go back"
-          >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <polyline points="15 18 9 12 15 6"></polyline>
-            </svg>
-          </button>
-          <img src="/momento-logo.png" alt="Momento" class="logo-image" />
-          <span class="logo-text">Momento</span>
-        </div>
-        <div class="navbar-right">
-          <div class="navbar-mail-wrapper">
-            <button
-              @click.stop="showInvitesMenu = !showInvitesMenu"
-              class="navbar-mail-button"
-              :aria-expanded="showInvitesMenu"
-              aria-label="Collaboration invitations"
-            >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <rect x="3" y="5" width="18" height="14" rx="2" ry="2" />
-                <polyline points="3 7 12 13 21 7" />
-              </svg>
-              <span
-                v-if="pendingInvitationsCount > 0"
-                class="navbar-mail-badge"
-              >
-                {{ pendingInvitationsCount }}
-              </span>
-            </button>
-            <div
-              v-if="showInvitesMenu"
-              class="navbar-mail-dropdown"
-              @click.stop
-            >
-              <div class="navbar-mail-header">Invitations</div>
-              <div v-if="!invitations.length" class="navbar-mail-empty">
-                No invitations yet.
-              </div>
-              <div v-else class="navbar-mail-list">
-                <div
-                  v-for="invite in invitations"
-                  :key="invite.id"
-                  class="navbar-mail-item"
-                >
-                  <div class="navbar-mail-line">
-                    <span class="navbar-mail-username">
-                      @{{ invite.toUsername }}
-                    </span>
-                    <span
-                      class="navbar-mail-status"
-                      :class="[
-                        invite.status === 'pending' && 'status-pending',
-                        invite.status === 'accepted' && 'status-accepted',
-                        invite.status === 'error' && 'status-error',
-                      ]"
-                    >
-                      {{
-                        invite.status === "pending"
-                          ? "Pending"
-                          : invite.status === "accepted"
-                          ? "Accepted"
-                          : "Error"
-                      }}
-                    </span>
-                  </div>
-                  <div class="navbar-mail-date">
-                    {{ new Date(invite.createdAt).toLocaleDateString() }}
-                  </div>
-                  <div class="navbar-mail-actions">
-                    <button
-                      class="navbar-mail-action-accept"
-                      @click="handleAcceptInvite(invite)"
-                    >
-                      Accept
-                    </button>
-                    <button
-                      class="navbar-mail-action-decline"
-                      @click="handleDeclineInvite(invite)"
-                    >
-                      Decline
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="user-menu-wrapper">
-            <button
-              @click.stop="showUserMenu = !showUserMenu"
-              class="user-menu-trigger"
-              :aria-expanded="showUserMenu"
-              aria-label="User menu"
-            >
-              <span class="user-greeting">Hi {{ getUserFirstName }}!</span>
-              <div class="user-avatar">
-                <span class="avatar-initial">
-                  {{ getUserFirstName.charAt(0).toUpperCase() }}
-                </span>
-              </div>
-            </button>
-            <div v-if="showUserMenu" class="user-menu-dropdown" @click.stop>
-              <button class="menu-item menu-item-danger" @click="handleLogout">
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                  <polyline points="16 17 21 12 16 7"></polyline>
-                  <line x1="21" y1="12" x2="9" y2="12"></line>
-                </svg>
-                Log Out
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </header>
-
     <!-- Main Content -->
     <main class="occasions-main">
-      <div v-if="isLoading" class="loading-state-full">
-        <div class="spinner-large"></div>
-        <p>Loading occasions...</p>
-      </div>
+      <div class="occasions-page-content">
+        <div v-if="isLoading" class="loading-state-full">
+          <div class="spinner-large"></div>
+          <p>Loading occasions...</p>
+        </div>
 
-      <div v-else class="occasions-container">
+        <div v-else class="occasions-container">
         <!-- Header Section -->
         <div class="occasions-header">
           <div class="occasions-header-content">
@@ -849,9 +608,9 @@ onUnmounted(() => {
               </svg>
             </button>
             <button
-              @click="viewMode = 'grouped'"
-              :class="['view-mode-button', { active: viewMode === 'grouped' }]"
-              aria-label="Grouped view"
+              @click="viewMode = 'calendar'"
+              :class="['view-mode-button', { active: viewMode === 'calendar' }]"
+              aria-label="Calendar view"
             >
               <svg
                 width="18"
@@ -861,10 +620,10 @@ onUnmounted(() => {
                 stroke="currentColor"
                 stroke-width="2"
               >
-                <rect x="3" y="3" width="7" height="7"></rect>
-                <rect x="14" y="3" width="7" height="7"></rect>
-                <rect x="14" y="14" width="7" height="7"></rect>
-                <rect x="3" y="14" width="7" height="7"></rect>
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6"></line>
+                <line x1="8" y1="2" x2="8" y2="6"></line>
+                <line x1="3" y1="10" x2="21" y2="10"></line>
               </svg>
             </button>
           </div>
@@ -917,27 +676,6 @@ onUnmounted(() => {
                 <div class="occasion-card-title-row">
                   <h3 class="occasion-card-name">{{ occasion.name }}</h3>
                   <div class="occasion-card-actions">
-                    <button
-                      @click.stop="openEditModal(occasion)"
-                      class="action-button edit-button"
-                      aria-label="Edit occasion"
-                    >
-                      <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                      >
-                        <path
-                          d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
-                        ></path>
-                        <path
-                          d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
-                        ></path>
-                      </svg>
-                    </button>
                     <button
                       @click.stop="openDeleteModal(occasion)"
                       class="action-button delete-button"
@@ -999,10 +737,10 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- Grouped View -->
-        <div v-else class="occasions-grouped-view">
+        <!-- Calendar View -->
+        <div v-else class="occasions-calendar-view">
           <div
-            v-if="Object.keys(occasionsByPerson).length === 0"
+            v-if="filteredOccasions.length === 0"
             class="empty-state-occasions"
           >
             <svg
@@ -1034,98 +772,147 @@ onUnmounted(() => {
             </button>
           </div>
 
-          <div v-else class="grouped-sections">
-            <div
-              v-for="(personOccasions, personName) in occasionsByPerson"
-              :key="personName"
-              class="person-group"
-            >
-              <div class="person-group-header">
-                <div class="person-group-avatar">
-                  {{ personName.charAt(0).toUpperCase() }}
+          <div v-else class="calendar-wrapper">
+            <!-- Left Side: Calendar -->
+            <div class="calendar-side">
+              <!-- Calendar Header -->
+              <div class="calendar-header">
+                <div class="calendar-nav">
+                  <button @click="navigateMonth('prev')" class="calendar-nav-button" aria-label="Previous month">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="15 18 9 12 15 6"></polyline>
+                    </svg>
+                  </button>
+                  <h2 class="calendar-month-year">{{ formatMonthYear(currentMonth) }}</h2>
+                  <button @click="navigateMonth('next')" class="calendar-nav-button" aria-label="Next month">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="9 18 15 12 9 6"></polyline>
+                    </svg>
+                  </button>
                 </div>
-                <div class="person-group-info">
-                  <h2 class="person-group-name">{{ personName }}</h2>
-                  <span class="person-group-count"
-                    >{{ personOccasions.length }}
-                    {{
-                      personOccasions.length === 1 ? "occasion" : "occasions"
-                    }}</span
-                  >
-                </div>
+                <button @click="goToToday" class="calendar-today-button">Today</button>
               </div>
-              <div class="person-group-occasions">
-                <div
-                  v-for="occasion in personOccasions"
-                  :key="occasion.occasion?.id || occasion.name"
-                  class="occasion-card-compact"
-                  :class="`status-${getDateStatus(occasion.date)}`"
-                  @click="viewOccasionDetail(occasion)"
-                >
-                  <div class="occasion-compact-header">
-                    <h4 class="occasion-compact-name">{{ occasion.name }}</h4>
-                    <div class="occasion-compact-actions">
-                      <button
-                        @click.stop="openEditModal(occasion)"
-                        class="action-button-small edit-button"
-                        aria-label="Edit"
-                      >
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                        >
-                          <path
-                            d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
-                          ></path>
-                          <path
-                            d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
-                          ></path>
-                        </svg>
-                      </button>
-                      <button
-                        @click.stop="openDeleteModal(occasion)"
-                        class="action-button-small delete-button"
-                        aria-label="Delete"
-                      >
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                        >
-                          <polyline points="3 6 5 6 21 6"></polyline>
-                          <path
-                            d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
-                          ></path>
-                        </svg>
-                      </button>
+
+              <!-- Calendar Grid -->
+              <div class="calendar-grid">
+                <!-- Weekday Headers -->
+                <div class="calendar-weekdays">
+                  <div class="calendar-weekday">Sun</div>
+                  <div class="calendar-weekday">Mon</div>
+                  <div class="calendar-weekday">Tue</div>
+                  <div class="calendar-weekday">Wed</div>
+                  <div class="calendar-weekday">Thu</div>
+                  <div class="calendar-weekday">Fri</div>
+                  <div class="calendar-weekday">Sat</div>
+                </div>
+
+                <!-- Calendar Days -->
+                <div class="calendar-days">
+                  <div
+                    v-for="(day, index) in getCalendarDays()"
+                    :key="index"
+                    class="calendar-day"
+                    :class="{
+                      'calendar-day-other-month': !day.isCurrentMonth,
+                      'calendar-day-today': isToday(day.date),
+                      'calendar-day-selected': selectedDate && formatDateForCalendar(day.date) === formatDateForCalendar(selectedDate),
+                      'calendar-day-has-occasions': day.occasions.length > 0,
+                    }"
+                    @click="selectedDate = day.date"
+                  >
+                    <div class="calendar-day-number">{{ day.date.getDate() }}</div>
+                    <div v-if="day.occasions.length > 0" class="calendar-day-occasions">
+                      <div
+                        v-for="(occasion, occIndex) in day.occasions.slice(0, 3)"
+                        :key="occIndex"
+                        class="calendar-occasion-dot"
+                        :class="`dot-${getDateStatus(occasion.date)}`"
+                        :title="occasion.name"
+                      ></div>
+                      <div v-if="day.occasions.length > 3" class="calendar-occasion-more">
+                        +{{ day.occasions.length - 3 }}
+                      </div>
                     </div>
                   </div>
-                  <div
-                    class="occasion-compact-date"
-                    :class="`badge-${getDateStatus(occasion.date)}`"
-                  >
-                    <span>{{ formatDate(occasion.date) }}</span>
-                    <span class="occasion-compact-time">{{
-                      getTimeUntilEvent(occasion.date)
-                    }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right Side: Selected Date and Events -->
+            <div class="calendar-events-side">
+              <div class="calendar-events-container">
+                <div class="selected-date-header">
+                  <div>
+                    <h3 class="selected-date-title">
+                      {{ selectedDate ? formatDate(selectedDate.toISOString()) : 'Select a date' }}
+                    </h3>
+                    <p v-if="selectedDate" class="selected-date-subtitle">
+                      {{ getOccasionsForDate(selectedDate).length }}
+                      {{ getOccasionsForDate(selectedDate).length === 1 ? 'occasion' : 'occasions' }}
+                    </p>
                   </div>
-                  <p
-                    v-if="occasion.description"
-                    class="occasion-compact-description"
+                </div>
+                
+                <div v-if="!selectedDate" class="selected-date-empty">
+                  <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="empty-icon">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                    <line x1="16" y1="2" x2="16" y2="6"></line>
+                    <line x1="8" y1="2" x2="8" y2="6"></line>
+                    <line x1="3" y1="10" x2="21" y2="10"></line>
+                  </svg>
+                  <p class="empty-text">Click on a date to view occasions</p>
+                </div>
+                
+                <div v-else-if="getOccasionsForDate(selectedDate).length === 0" class="selected-date-empty">
+                  <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="empty-icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <path d="M12 6v6l4 2"></path>
+                  </svg>
+                  <p class="empty-text">No occasions on this date</p>
+                  <button @click="openCreateModal" class="empty-state-button">Create Occasion</button>
+                </div>
+                
+                <div v-else class="selected-date-occasions-list">
+                  <div
+                    v-for="occasion in getOccasionsForDate(selectedDate)"
+                    :key="occasion.occasion?.id || occasion.name"
+                    class="selected-occasion-card"
+                    :class="`status-${getDateStatus(occasion.date)}`"
+                    @click="viewOccasionDetail(occasion)"
                   >
-                    {{ occasion.description }}
-                  </p>
+                    <div class="selected-occasion-header">
+                      <h4 class="selected-occasion-name">{{ occasion.name }}</h4>
+                      <div class="selected-occasion-actions">
+                        <button
+                          @click.stop="openDeleteModal(occasion)"
+                          class="action-button-small delete-button"
+                          aria-label="Delete"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="selected-occasion-person">
+                      <div class="person-avatar-small">
+                        {{ (occasion.relationshipName || "?").charAt(0).toUpperCase() }}
+                      </div>
+                      <span class="selected-occasion-person-name">{{ occasion.relationshipName || "Unknown" }}</span>
+                    </div>
+                    <div class="selected-occasion-time" :class="`badge-${getDateStatus(occasion.date)}`">
+                      {{ getTimeUntilEvent(occasion.date) }}
+                    </div>
+                    <p v-if="occasion.description" class="selected-occasion-description">
+                      {{ occasion.description }}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
+        </div>
         </div>
       </div>
     </main>
@@ -1234,115 +1021,6 @@ onUnmounted(() => {
           </button>
           <p v-if="createOccasionError" class="modal-error-text">
             {{ createOccasionError }}
-          </p>
-        </div>
-      </div>
-    </div>
-
-    <!-- Edit Modal -->
-    <div
-      v-if="showEditModal"
-      class="modal-overlay"
-      @click.self="closeEditModal"
-    >
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2 class="modal-title">Edit Occasion</h2>
-          <button
-            @click="closeEditModal"
-            class="modal-close"
-            aria-label="Close"
-          >
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <div class="form-grid">
-            <div class="form-group">
-              <label class="form-label">Occasion Name *</label>
-              <input
-                v-model="formName"
-                type="text"
-                placeholder="e.g., Birthday, Anniversary"
-                class="form-input"
-                :class="{ 'has-error': formErrors.name }"
-                required
-                @input="formErrors.name = ''"
-              />
-              <span v-if="formErrors.name" class="field-error">{{
-                formErrors.name
-              }}</span>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Date *</label>
-              <input
-                v-model="formDate"
-                type="date"
-                class="form-input"
-                :class="{ 'has-error': formErrors.date }"
-                required
-                @input="formErrors.date = ''"
-              />
-              <span v-if="formErrors.date" class="field-error">{{
-                formErrors.date
-              }}</span>
-            </div>
-            <div class="form-group form-group-full">
-              <label class="form-label">Person *</label>
-              <select
-                v-model="formRelationship"
-                class="form-input"
-                :class="{ 'has-error': formErrors.relationship }"
-                required
-                @change="formErrors.relationship = ''"
-              >
-                <option :value="null">Select a person</option>
-                <option
-                  v-for="relationship in allRelationships"
-                  :key="relationship.id"
-                  :value="relationship.name"
-                >
-                  {{ relationship.name }} ({{ relationship.relationshipType }})
-                </option>
-              </select>
-              <span v-if="formErrors.relationship" class="field-error">{{
-                formErrors.relationship
-              }}</span>
-            </div>
-            <div class="form-group form-group-full">
-              <label class="form-label">Description (Optional)</label>
-              <textarea
-                v-model="formDescription"
-                placeholder="Add any notes or details..."
-                class="form-textarea"
-                rows="2"
-              ></textarea>
-            </div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button @click="closeEditModal" class="button-secondary">
-            Cancel
-          </button>
-          <button
-            @click="handleUpdateOccasion"
-            class="button-primary"
-            :disabled="isSubmitting"
-          >
-            {{ isSubmitting ? "Updating..." : "Update Occasion" }}
-          </button>
-          <p v-if="editOccasionError" class="modal-error-text">
-            {{ editOccasionError }}
           </p>
         </div>
       </div>

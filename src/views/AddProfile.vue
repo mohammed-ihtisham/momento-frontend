@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { relationshipApi, sessionManager } from '../api'
 import { nameToSlug } from '../utils'
@@ -147,21 +147,18 @@ onMounted(() => {
   if (!currentUser) {
     router.push('/')
   }
+  // Prevent body scrolling on this page
+  document.body.style.overflow = 'hidden'
+})
+
+onUnmounted(() => {
+  // Restore body scrolling when leaving the page
+  document.body.style.overflow = ''
 })
 </script>
 
 <template>
   <div class="add-profile-page">
-    <!-- Header Bar -->
-    <header class="add-profile-header">
-      <div class="add-profile-header-content">
-        <div class="add-profile-logo">
-          <img src="/momento-logo.png" alt="Momento" class="logo-image" />
-          <span class="logo-text">Momento</span>
-        </div>
-      </div>
-    </header>
-
     <!-- Main Content -->
     <main class="add-profile-main">
       <div class="add-profile-container">

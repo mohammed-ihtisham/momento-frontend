@@ -6,7 +6,6 @@ import {
   occasionsApi,
   profileApi,
   relationshipApi,
-  notesApi,
   tasksApi,
   taskChecklistApi,
   collaboratorsApi,
@@ -28,21 +27,10 @@ const userProfile = ref<{
 } | null>(null);
 const occasion = ref<any>(null);
 const isLoading = ref(true);
-const showUserMenu = ref(false);
-
-// Invitations dropdown (reuses same storage key as navbar on other pages)
-const showInvitesMenu = ref(false);
 
 // Event details
 const eventName = ref("");
 const eventDate = ref("");
-const isEditingEventName = ref(false);
-const showEditEventModal = ref(false);
-const editEventName = ref("");
-const editEventDate = ref("");
-const editEventDescription = ref("");
-const editEventPerson = ref<any>(null);
-const isUpdatingEvent = ref(false);
 
 // Relationship context (person for this occasion)
 const allRelationships = ref<any[]>([]);
@@ -65,25 +53,6 @@ const newCollaboratorUsername = ref("");
 const occasionOwnerId = ref<string | null>(null);
 const isCurrentUserOwner = ref<boolean>(false);
 
-// Incoming invitations for the current user (inbox-style)
-type InvitationStatus = "pending" | "accepted" | "error";
-interface Invitation {
-  id: string;
-  invitePayload?: any;
-  toUsername: string;
-  senderId?: any;
-  occasionId?: any;
-  createdAt: string;
-  status: InvitationStatus;
-  errorMessage?: string;
-}
-
-const invitations = ref<Invitation[]>([]);
-
-const pendingInvitationsCount = computed(
-  () => invitations.value.filter((i) => i.status === "pending").length
-);
-
 // Shared feedback modal for this view (used for non-modal, page-level actions)
 const {
   isFeedbackOpen,
@@ -101,93 +70,6 @@ const editOccasionNoteError = ref("");
 // Inline error messaging for invite collaborator modal
 const inviteError = ref("");
 
-// Load incoming invites for the current user from backend
-const loadIncomingInvitations = async () => {
-  try {
-    const backendInvites = await collaboratorsApi.getIncomingInvites();
-    // Only show pending invites in the inbox
-    invitations.value = (backendInvites || [])
-      .filter((inv: any) => inv.status === "pending")
-      .map((inv: any) => {
-        const rawInvite = inv.invite;
-        const sender = inv.sender;
-        // Try to get username from sender - it might be an ID or user object
-        let username = "someone";
-        if (typeof sender === "string") {
-          username = sender;
-        } else if (sender?.username) {
-          username = sender.username;
-        } else if (sender?.name) {
-          username = sender.name;
-        }
-
-        return {
-          id: String(rawInvite?.id ?? rawInvite ?? inv.id ?? ""),
-          invitePayload: rawInvite,
-          toUsername: username,
-          senderId: sender,
-          occasionId: inv.occasionId,
-          createdAt: inv.createdAt,
-          status: "pending" as InvitationStatus,
-        };
-      });
-  } catch (error) {
-    console.error(
-      "Failed to load collaborator invitations from backend:",
-      error
-    );
-    invitations.value = [];
-  }
-};
-
-// Load invites on demand (when mail icon is clicked)
-const loadInvitesOnDemand = async () => {
-  try {
-    // Load incoming invites
-    await loadIncomingInvitations();
-
-    // Load sent invites and update collaborators list
-    if (occasion.value?.occasion) {
-      await loadOccasionCollaborators(occasion.value.occasion, true);
-    }
-  } catch (error) {
-    console.error("Error loading invites on demand:", error);
-  }
-};
-
-// Handle accepting an invitation
-const handleAcceptInvite = async (invite: Invitation) => {
-  try {
-    await collaboratorsApi.acceptInvite(invite.invitePayload ?? invite.id);
-    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
-    // Reload collaborators to show the newly accepted user (include sent invites)
-    if (occasion.value?.occasion) {
-      await loadOccasionCollaborators(occasion.value.occasion, true);
-    }
-  } catch (error: any) {
-    console.error("Error accepting invitation:", error);
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Failed to accept invitation. Please try again.";
-    openErrorModal(message, "Could not accept invitation");
-  }
-};
-
-// Handle declining an invitation
-const handleDeclineInvite = async (invite: Invitation) => {
-  try {
-    await collaboratorsApi.declineInvite(invite.invitePayload ?? invite.id);
-    invitations.value = invitations.value.filter((i) => i.id !== invite.id);
-  } catch (error: any) {
-    console.error("Error declining invitation:", error);
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Failed to decline invitation. Please try again.";
-    openErrorModal(message, "Could not decline invitation");
-  }
-};
 
 // Planning Checklist
 const tasks = ref<
@@ -305,40 +187,6 @@ const isCreatingOccasionNote = ref(false);
 // No notes modal state
 const showNoNotesModal = ref(false);
 
-// Existing notes on this person (from Relationship notes)
-const relationshipNotes = ref<
-  Array<{
-    note: any;
-    title: string;
-    content: string;
-  }>
->([]);
-const isLoadingRelationshipNotes = ref(false);
-const showImportNotes = ref(false);
-
-// Only show relationship notes that haven't already been attached
-// to this occasion's Shared Notes list (regardless of how they were added).
-const availableRelationshipNotes = computed(() =>
-  relationshipNotes.value.filter((relNote) => {
-    const relTitle = relNote.title;
-    const relContent = relNote.content;
-
-    return !notes.value.some((n) => {
-      const noteTitle = n.title;
-      const noteContent = n.content;
-
-      if (noteTitle && relTitle && noteTitle === relTitle) {
-        return true;
-      }
-
-      if (noteContent && relContent && noteContent === relContent) {
-        return true;
-      }
-
-      return false;
-    });
-  })
-);
 
 // Suggestions
 const suggestions = ref<string[]>([]);
@@ -378,6 +226,17 @@ const daysText = computed(() => {
   return `${days} days left`;
 });
 
+// Short date format (e.g., "Dec 9, 2024")
+const shortDate = computed(() => {
+  if (!eventDate.value) return "";
+  const date = new Date(eventDate.value);
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+});
+
 // Checklist / notes stats (for task‑manager style overview)
 const totalTasks = computed(() => tasks.value.length);
 const completedTasks = computed(
@@ -391,69 +250,6 @@ const highPriorityOpenTasks = computed(
 );
 const notesCount = computed(() => notes.value.length);
 
-// Open Edit Event modal, pre‑filling current values (mirrors the create/edit
-// occasion modal used in the All Occasions view)
-const openEditEventModal = () => {
-  if (!occasion.value) return;
-
-  editEventName.value = eventName.value;
-  editEventPerson.value = relationshipName.value;
-  editEventDescription.value = (occasion.value as any)?.description || "";
-
-  if (eventDate.value) {
-    const date = new Date(eventDate.value);
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    editEventDate.value = `${year}-${month}-${day}`;
-  } else {
-    editEventDate.value = "";
-  }
-
-  showEditEventModal.value = true;
-};
-
-// Persist event updates to backend
-const handleUpdateEvent = async () => {
-  if (!occasion.value) return;
-
-  const name = editEventName.value.trim();
-  const dateStr = editEventDate.value;
-  const person = editEventPerson.value;
-  const description = editEventDescription.value.trim();
-
-  if (!name || !dateStr || !person) return;
-
-  isUpdatingEvent.value = true;
-  try {
-    const newDate = new Date(dateStr);
-
-    await occasionsApi.updateOccasion(
-      occasion.value.occasion,
-      // person (name of relationship)
-      person,
-      name,
-      newDate
-    );
-
-    // Update local state to reflect saved changes
-    eventName.value = name;
-    eventDate.value = newDate.toISOString();
-    relationshipName.value = person;
-    occasion.value.person = person;
-    (occasion.value as any).description = description;
-    showEditEventModal.value = false;
-  } catch (error) {
-    console.error("Error updating event details:", error);
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Failed to update event. Please try again.";
-    openErrorModal(message, "Could not update event");
-  } finally {
-    isUpdatingEvent.value = false;
-  }
-};
 
 // Load user profile
 const loadUserProfile = async () => {
@@ -684,9 +480,8 @@ const loadOccasion = async () => {
           console.error(
             "[loadOccasion] Cannot load owner's data - owner unknown and user is collaborator"
           );
-          // Skip loading relationships/notes/tasks if we can't determine owner
+          // Skip loading relationships/tasks if we can't determine owner
           relationship.value = null;
-          relationshipNotes.value = [];
           tasks.value = [];
         } else {
           // Extract user ID - backend expects a string ID, not an object
@@ -727,37 +522,17 @@ const loadOccasion = async () => {
           if (matchingRelationship) {
             relationship.value = matchingRelationship.relationship;
             relationshipName.value = matchingRelationship.name;
-
-            try {
-              isLoadingRelationshipNotes.value = true;
-              // Load notes from the owner if current user is a collaborator
-              const notesData = await notesApi.getNotesByRelationship(
-                userIdToLoad,
-                matchingRelationship.relationship
-              );
-              relationshipNotes.value = notesData;
-            } catch (error) {
-              console.error(
-                "Error loading relationship notes for occasion:",
-                error
-              );
-              relationshipNotes.value = [];
-            } finally {
-              isLoadingRelationshipNotes.value = false;
-            }
           } else {
             console.warn(
               "No matching relationship found for person:",
               found.person
             );
             relationship.value = null;
-            relationshipNotes.value = [];
           }
         }
       } catch (error) {
         console.error("Error loading relationships for occasion:", error);
         relationship.value = null;
-        relationshipNotes.value = [];
       }
 
       // Load collaborators for this occasion (without sent invites - loaded on demand)
@@ -829,9 +604,27 @@ const loadOccasion = async () => {
               );
             }
 
-            // Only show tasks that are actually in the checklist
+            // Load deleted tasks from localStorage
+            const deletedTasksKey = `occasion-tasks-deleted-${route.params.id}-${ownerId}`;
+            let deletedTasks: string[] = [];
+            try {
+              const stored = localStorage.getItem(deletedTasksKey);
+              if (stored) {
+                deletedTasks = JSON.parse(stored);
+              }
+            } catch (error) {
+              console.error(
+                "Error loading deleted tasks from localStorage:",
+                error
+              );
+            }
+
+            // Only show tasks that are actually in the checklist and not deleted
             tasks.value = taskList
-              .filter((t) => checklistMap.has(t.task))
+              .filter((t) => {
+                const taskIdStr = String(t.task);
+                return checklistMap.has(t.task) && !deletedTasks.includes(taskIdStr);
+              })
               .map((t) => {
                 const taskIdStr = String(t.task);
                 // Use backend priority first, then localStorage, then default to "medium"
@@ -1013,9 +806,27 @@ const addTask = async () => {
         );
       }
 
-      // Only show tasks that are actually in the checklist
+      // Load deleted tasks from localStorage
+      const deletedTasksKey = `occasion-tasks-deleted-${route.params.id}-${taskOwnerId}`;
+      let deletedTasks: string[] = [];
+      try {
+        const stored = localStorage.getItem(deletedTasksKey);
+        if (stored) {
+          deletedTasks = JSON.parse(stored);
+        }
+      } catch (error) {
+        console.error(
+          "Error loading deleted tasks from localStorage:",
+          error
+        );
+      }
+
+      // Only show tasks that are actually in the checklist and not deleted
       tasks.value = taskList
-        .filter((t) => checklistMap.has(t.task))
+        .filter((t) => {
+          const taskIdStr = String(t.task);
+          return checklistMap.has(t.task) && !deletedTasks.includes(taskIdStr);
+        })
         .map((t) => {
           const taskIdStr = String(t.task);
           // For the newly added task, use the selected priority
@@ -1067,31 +878,37 @@ const addTask = async () => {
 };
 
 // Delete task (remove from checklist + delete underlying Task)
-const deleteTask = async (taskId: string) => {
-  if (!currentUser.value) return;
+const deleteTask = (taskId: string) => {
+  if (!currentUser.value || !occasionOwnerId.value || !route.params.id) return;
 
   const previousTasks = [...tasks.value];
   tasks.value = tasks.value.filter((t) => t.id !== taskId);
 
   try {
-    // Use owner's account for task operations so all collaborators see the changes
-    const taskOwner = isCurrentUserOwner.value
-      ? currentUser.value
-      : occasionOwnerId.value
-      ? occasionOwnerId.value
-      : currentUser.value;
+    // Save deleted task ID to localStorage
+    const deletedTasksKey = `occasion-tasks-deleted-${route.params.id}-${occasionOwnerId.value}`;
+    let deletedTasks: string[] = [];
+    
+    try {
+      const stored = localStorage.getItem(deletedTasksKey);
+      if (stored) {
+        deletedTasks = JSON.parse(stored);
+      }
+    } catch (error) {
+      console.error("Error loading deleted tasks from localStorage:", error);
+    }
 
-    // Extract user ID if it's an object
-    const taskOwnerId =
-      typeof taskOwner === "string"
-        ? taskOwner
-        : taskOwner?.id || taskOwner?.username || taskOwner;
+    // Add task ID to deleted list if not already there
+    if (!deletedTasks.includes(taskId)) {
+      deletedTasks.push(taskId);
+      localStorage.setItem(deletedTasksKey, JSON.stringify(deletedTasks));
+    }
 
-    await taskChecklistApi.removeTask(taskOwnerId, taskId);
-    await tasksApi.deleteTask(taskId);
+    // Update task priorities to remove deleted task
+    saveTaskPriorities();
   } catch (error) {
-    console.error("Error deleting planning checklist task:", error);
-    // Restore previous state if backend delete fails
+    console.error("Error deleting task from localStorage:", error);
+    // Restore previous state if localStorage delete fails
     tasks.value = previousTasks;
     const message =
       error instanceof Error
@@ -1318,50 +1135,6 @@ const cancelNoteEdit = () => {
   editOccasionNoteError.value = "";
 };
 
-// Bring in an existing note from the person's notes
-const addNoteFromRelationship = async (relNote: {
-  note: any;
-  title: string;
-  content: string;
-}) => {
-  const relTitle = relNote.title;
-
-  const existing = notes.value.find((n) => {
-    const noteTitle = n.title;
-
-    if (noteTitle && relTitle) {
-      return noteTitle === relTitle;
-    }
-
-    return false;
-  });
-  if (existing) {
-    showImportNotes.value = false;
-    return;
-  }
-
-  try {
-    if (!currentUser.value) {
-      editOccasionNoteError.value = "You must be logged in to add a note.";
-      return;
-    }
-    await occasionNotesApi.createNote(
-      currentUser.value,
-      route.params.id,
-      relNote.title || "Occasion note",
-      relNote.content
-    );
-    await loadOccasionNotes(route.params.id);
-    showImportNotes.value = false;
-  } catch (error: any) {
-    console.error("Error adding shared note from relationship:", error);
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Failed to add note from relationship. Please try again.";
-    editOccasionNoteError.value = message;
-  }
-};
 
 // Invite collaborator (by username, backed by CollaboratorsConcept)
 const inviteCollaborator = async () => {
@@ -1666,8 +1439,15 @@ const loadExistingSuggestions = async () => {
     );
 
     // Extract content from suggestions and populate the ref
+    // Only keep the last 3 generated suggestions (sorted by generatedAt, most recent first)
     if (existingSuggestions && existingSuggestions.length > 0) {
-      suggestions.value = existingSuggestions.map((s) => s.content);
+      // Sort by generatedAt (most recent first) and take only the last 3
+      const sorted = [...existingSuggestions].sort((a, b) => {
+        const dateA = new Date(a.generatedAt).getTime();
+        const dateB = new Date(b.generatedAt).getTime();
+        return dateB - dateA; // Most recent first
+      });
+      suggestions.value = sorted.slice(0, 3).map((s) => s.content);
     }
   } catch (error) {
     console.error("Error loading existing suggestions:", error);
@@ -1723,6 +1503,7 @@ const getSuggestions = async () => {
       occasionId
     );
 
+    // Replace suggestions with only the last 3 generated (most recent)
     // Backend already flattens each suggestion into a single string
     suggestions.value = result.map((s) => s.content).slice(0, 3);
   } catch (error) {
@@ -1737,31 +1518,7 @@ const getSuggestions = async () => {
   }
 };
 
-// Handle logout
-const handleLogout = async () => {
-  sessionManager.clearUser();
-  currentUser.value = null;
-  userProfile.value = null;
-  showUserMenu.value = false;
-  router.replace("/");
-};
 
-// Handle mail icon click - load invites on demand
-const handleMailIconClick = async () => {
-  await loadInvitesOnDemand();
-  showInvitesMenu.value = !showInvitesMenu.value;
-};
-
-// Close user menu when clicking outside
-const handleClickOutside = (event: MouseEvent) => {
-  const target = event.target as HTMLElement;
-  if (!target.closest(".user-menu-wrapper")) {
-    showUserMenu.value = false;
-  }
-  if (!target.closest(".navbar-mail-wrapper")) {
-    showInvitesMenu.value = false;
-  }
-};
 
 onMounted(async () => {
   const savedUser = sessionManager.getUser();
@@ -1774,12 +1531,9 @@ onMounted(async () => {
   await loadUserProfile();
   await loadOccasion();
   await loadExistingSuggestions();
-
-  document.addEventListener("click", handleClickOutside);
 });
 
 onUnmounted(() => {
-  document.removeEventListener("click", handleClickOutside);
   clearNoteFeedback();
 });
 </script>
@@ -1831,151 +1585,6 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <!-- Header Bar -->
-    <header class="relationship-detail-header">
-      <div class="relationship-detail-header-content">
-        <div class="relationship-detail-logo">
-          <button
-            @click="handleBack"
-            class="back-button-inline"
-            aria-label="Go back"
-          >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <polyline points="15 18 9 12 15 6"></polyline>
-            </svg>
-          </button>
-          <img src="/momento-logo.png" alt="Momento" class="logo-image" />
-          <span class="logo-text">Momento</span>
-        </div>
-        <div class="navbar-right">
-          <div class="navbar-mail-wrapper">
-            <button
-              @click.stop="handleMailIconClick"
-              class="navbar-mail-button"
-              :aria-expanded="showInvitesMenu"
-              aria-label="Collaboration invitations"
-            >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <rect x="3" y="5" width="18" height="14" rx="2" ry="2" />
-                <polyline points="3 7 12 13 21 7" />
-              </svg>
-              <span
-                v-if="pendingInvitationsCount > 0"
-                class="navbar-mail-badge"
-              >
-                {{ pendingInvitationsCount }}
-              </span>
-            </button>
-            <div
-              v-if="showInvitesMenu"
-              class="navbar-mail-dropdown"
-              @click.stop
-            >
-              <div class="navbar-mail-header">Invitations</div>
-              <div v-if="!invitations.length" class="navbar-mail-empty">
-                No invitations yet.
-              </div>
-              <div v-else class="navbar-mail-list">
-                <div
-                  v-for="invite in invitations"
-                  :key="invite.id"
-                  class="navbar-mail-item"
-                >
-                  <div class="navbar-mail-line">
-                    <span class="navbar-mail-username">
-                      From @{{ invite.toUsername }}
-                    </span>
-                    <span
-                      class="navbar-mail-status"
-                      :class="[
-                        invite.status === 'pending' && 'status-pending',
-                        invite.status === 'accepted' && 'status-accepted',
-                        invite.status === 'error' && 'status-error',
-                      ]"
-                    >
-                      {{
-                        invite.status === "pending"
-                          ? "Pending"
-                          : invite.status === "accepted"
-                          ? "Accepted"
-                          : "Error"
-                      }}
-                    </span>
-                  </div>
-                  <div class="navbar-mail-date">
-                    {{ new Date(invite.createdAt).toLocaleDateString() }}
-                  </div>
-                  <div
-                    v-if="invite.status === 'pending'"
-                    class="navbar-mail-actions"
-                  >
-                    <button
-                      class="navbar-mail-action-accept"
-                      @click="handleAcceptInvite(invite)"
-                    >
-                      Accept
-                    </button>
-                    <button
-                      class="navbar-mail-action-decline"
-                      @click="handleDeclineInvite(invite)"
-                    >
-                      Decline
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="user-menu-wrapper">
-            <button
-              @click.stop="showUserMenu = !showUserMenu"
-              class="user-menu-trigger"
-              :aria-expanded="showUserMenu"
-              aria-label="User menu"
-            >
-              <span class="user-greeting">Hi {{ getUserFirstName }}!</span>
-              <div class="user-avatar">
-                <span class="avatar-initial">
-                  {{ getUserFirstName.charAt(0).toUpperCase() }}
-                </span>
-              </div>
-            </button>
-            <div v-if="showUserMenu" class="user-menu-dropdown" @click.stop>
-              <button class="menu-item menu-item-danger" @click="handleLogout">
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                  <polyline points="16 17 21 12 16 7"></polyline>
-                  <line x1="21" y1="12" x2="9" y2="12"></line>
-                </svg>
-                Log Out
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </header>
-
     <!-- Main Content -->
     <main class="occasion-detail-main">
       <div v-if="isLoading" class="loading-state-full">
@@ -1987,60 +1596,50 @@ onUnmounted(() => {
         <!-- Top Navigation Section -->
         <div class="occasion-top-nav">
           <div class="occasion-top-left">
-            <div class="occasion-title-section">
-              <h1
-                v-if="!isEditingEventName"
-                @click="isEditingEventName = true"
-                class="occasion-title-editable"
+            <div class="occasion-header-row">
+              <button
+                @click="handleBack"
+                class="back-button-modern"
+                aria-label="Go back"
               >
-                {{ eventName }}
-              </h1>
-              <input
-                v-else
-                v-model="eventName"
-                @blur="isEditingEventName = false"
-                @keyup.enter="isEditingEventName = false"
-                @keyup.esc="isEditingEventName = false"
-                class="occasion-title-input"
-                autofocus
-              />
-              <div class="occasion-days-remaining">
                 <svg
-                  width="16"
-                  height="16"
+                  width="20"
+                  height="20"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
                   stroke-width="2"
                 >
-                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-                  <line x1="16" y1="2" x2="16" y2="6"></line>
-                  <line x1="8" y1="2" x2="8" y2="6"></line>
-                  <line x1="3" y1="10" x2="21" y2="10"></line>
+                  <polyline points="15 18 9 12 15 6"></polyline>
                 </svg>
-                <span>{{ daysText }}</span>
+              </button>
+              <div class="occasion-title-section">
+                <h1 class="occasion-title">
+                  {{ eventName }}
+                </h1>
+                <div class="occasion-date-info">
+                  <div class="occasion-date-display">
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                      <line x1="16" y1="2" x2="16" y2="6"></line>
+                      <line x1="8" y1="2" x2="8" y2="6"></line>
+                      <line x1="3" y1="10" x2="21" y2="10"></line>
+                    </svg>
+                    <span class="date-text">{{ shortDate }}</span>
+                  </div>
+                  <div class="occasion-days-remaining">
+                    <span class="days-badge">{{ daysText }}</span>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-          <div class="occasion-top-right">
-            <button @click="openEditEventModal" class="edit-event-button">
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path
-                  d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
-                ></path>
-                <path
-                  d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
-                ></path>
-              </svg>
-              Edit Event Details
-            </button>
           </div>
         </div>
 
@@ -2356,56 +1955,6 @@ onUnmounted(() => {
                 </svg>
                 Add new note for this occasion
               </button>
-              <button
-                v-if="relationshipName"
-                @click="showImportNotes = !showImportNotes"
-                class="add-note-secondary-button"
-              >
-                Add existing note for {{ relationshipName || "this person" }}
-              </button>
-            </div>
-
-            <div v-if="showImportNotes" class="import-notes-list">
-              <div
-                v-if="isLoadingRelationshipNotes"
-                class="import-notes-loading"
-              >
-                Loading notes...
-              </div>
-              <div
-                v-else-if="!relationshipNotes.length"
-                class="import-notes-loading"
-              >
-                No existing notes yet for this person.
-              </div>
-              <div
-                v-else-if="!availableRelationshipNotes.length"
-                class="import-notes-loading"
-              >
-                All existing notes for this person are already added to this
-                occasion.
-              </div>
-              <div
-                v-else
-                v-for="relNote in availableRelationshipNotes"
-                :key="relNote.note?.id || relNote.title"
-                class="import-note-item"
-                @click="addNoteFromRelationship(relNote)"
-              >
-                <div class="import-note-title">
-                  {{ relNote.title || "Untitled note" }}
-                </div>
-                <div class="import-note-preview">
-                  {{ relNote.content }}
-                </div>
-                <div class="import-note-cta">Add to this occasion</div>
-              </div>
-              <div
-                v-if="isLoadingRelationshipNotes"
-                class="import-notes-loading"
-              >
-                Loading notes...
-              </div>
             </div>
           </div>
         </section>
@@ -2437,98 +1986,6 @@ onUnmounted(() => {
         </section>
       </div>
     </main>
-
-    <!-- Edit Occasion Modal (matches All Occasions edit/create modal) -->
-    <div
-      v-if="showEditEventModal"
-      class="modal-overlay"
-      @click.self="showEditEventModal = false"
-    >
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2 class="modal-title">Edit Occasion</h2>
-          <button
-            @click="showEditEventModal = false"
-            class="modal-close"
-            aria-label="Close"
-          >
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <div class="form-grid">
-            <div class="form-group">
-              <label class="form-label">Occasion Name *</label>
-              <input
-                v-model="editEventName"
-                type="text"
-                placeholder="e.g., Birthday, Anniversary"
-                class="form-input"
-                required
-              />
-            </div>
-            <div class="form-group">
-              <label class="form-label">Date *</label>
-              <input
-                v-model="editEventDate"
-                type="date"
-                class="form-input"
-                required
-              />
-            </div>
-            <div class="form-group form-group-full">
-              <label class="form-label">Person *</label>
-              <select v-model="editEventPerson" class="form-input" required>
-                <option :value="null">Select a person</option>
-                <option
-                  v-for="rel in allRelationships"
-                  :key="rel.id"
-                  :value="rel.name"
-                >
-                  {{ rel.name }} ({{ rel.relationshipType }})
-                </option>
-              </select>
-            </div>
-            <div class="form-group form-group-full">
-              <label class="form-label">Description (Optional)</label>
-              <textarea
-                v-model="editEventDescription"
-                placeholder="Add any notes or details..."
-                class="form-textarea"
-                rows="2"
-              ></textarea>
-            </div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button @click="showEditEventModal = false" class="button-secondary">
-            Cancel
-          </button>
-          <button
-            @click="handleUpdateEvent"
-            class="button-primary"
-            :disabled="
-              isUpdatingEvent ||
-              !editEventName.trim() ||
-              !editEventDate ||
-              !editEventPerson
-            "
-          >
-            {{ isUpdatingEvent ? "Updating..." : "Update Occasion" }}
-          </button>
-        </div>
-      </div>
-    </div>
 
     <!-- Occasion Note Modal -->
     <transition name="modal">

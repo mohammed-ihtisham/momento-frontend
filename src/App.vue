@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { userAuthApi, profileApi, sessionManager } from './api'
+import Layout from './components/Layout.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -154,7 +155,9 @@ onMounted(async () => {
 
 <template>
   <!-- Router View for authenticated pages -->
-  <router-view v-if="isLoggedIn" />
+  <Layout v-if="isLoggedIn">
+    <router-view />
+  </Layout>
   
   <!-- Login/Register View -->
   <div v-else class="login-page">
